@@ -57,7 +57,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _initWebController() {
-    final controller = WebViewController()
+    late final PlatformWebViewControllerCreationParams params;
+
+    if (Platform.isIOS && WebViewPlatform.instance is WebKitWebViewPlatform) {
+      // KEY FIX: allowsInlineMediaPlayback=true prevents iOS from forcing
+      // videos into native fullscreen automatically when the page loads.
+      // mediaTypesRequiringUserAction={} means user must explicitly tap to play.
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
+
+    final controller = WebViewController.fromPlatformCreationParams(params)
       ..setUserAgent(Platform.isIOS
           ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
           : 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36')
@@ -88,6 +102,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 _currentUrl = url;
                 _canGoBack = canGo;
               });
+              // Inject JS: add playsinline to all video elements so iOS
+              // renders them inline, and remove any autoplay attributes.
+              await _webController.runJavaScript('''
+                (function() {
+                  document.querySelectorAll('video').forEach(function(v) {
+                    v.setAttribute('playsinline', '');
+                    v.setAttribute('webkit-playsinline', '');
+                    v.removeAttribute('autoplay');
+                  });
+                  var observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(m) {
+                      m.addedNodes.forEach(function(node) {
+                        if (node.tagName === 'VIDEO') {
+                          node.setAttribute('playsinline', '');
+                          node.setAttribute('webkit-playsinline', '');
+                          node.removeAttribute('autoplay');
+                        }
+                        if (node.querySelectorAll) {
+                          node.querySelectorAll('video').forEach(function(v) {
+                            v.setAttribute('playsinline', '');
+                            v.setAttribute('webkit-playsinline', '');
+                            v.removeAttribute('autoplay');
+                          });
+                        }
+                      });
+                    });
+                  });
+                  observer.observe(document.body, { childList: true, subtree: true });
+                })();
+              ''');
             }
           },
           onUrlChange: (UrlChange change) async {
@@ -101,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           },
           onNavigationRequest: (NavigationRequest request) {
-            // Allow all navigations internally so the user can watch the video in WebView
             return NavigationDecision.navigate;
           },
         ),

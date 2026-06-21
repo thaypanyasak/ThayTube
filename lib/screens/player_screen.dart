@@ -53,35 +53,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildThumbnailView(dynamic track, bool isLocal) {
-    return isLocal
-        ? Image.file(
-            File(track.localThumbnailPath),
-            fit: BoxFit.cover,
-          )
-        : Image.network(
-            track.thumbnailUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              color: Colors.grey[900],
-              child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
+    return RepaintBoundary(
+      child: isLocal
+          ? Image.file(
+              File(track.localThumbnailPath),
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+            )
+          : Image.network(
+              track.thumbnailUrl,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.grey[900],
+                child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
+              ),
             ),
-          );
+    );
   }
 
   Widget _buildVideoView(AudioService audioService) {
     if (audioService.videoController != null && audioService.videoController!.value.isInitialized) {
-      return Center(
-        child: SizedBox.expand(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: audioService.videoController!.value.size.width > 0 
-                  ? audioService.videoController!.value.size.width 
-                  : 16,
-              height: audioService.videoController!.value.size.height > 0 
-                  ? audioService.videoController!.value.size.height 
-                  : 9,
-              child: VideoPlayer(audioService.videoController!),
+      return RepaintBoundary(
+        child: Center(
+          child: SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: audioService.videoController!.value.size.width > 0
+                    ? audioService.videoController!.value.size.width
+                    : 16,
+                height: audioService.videoController!.value.size.height > 0
+                    ? audioService.videoController!.value.size.height
+                    : 9,
+                child: VideoPlayer(audioService.videoController!),
+              ),
             ),
           ),
         ),
@@ -278,17 +286,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(24),
                     child: hasVideo
-                        ? PageView(
-                            controller: _pageController,
-                            onPageChanged: (page) {
-                              setState(() {
-                                _currentPage = page;
-                              });
+                        ? GestureDetector(
+                            onHorizontalDragEnd: (details) {
+                              if (details.primaryVelocity == null) return;
+                              if (details.primaryVelocity! < -200 && _currentPage == 0) {
+                                setState(() => _currentPage = 1);
+                              } else if (details.primaryVelocity! > 200 && _currentPage == 1) {
+                                setState(() => _currentPage = 0);
+                              }
                             },
-                            children: [
-                              _buildThumbnailView(track, isLocal),
-                              _buildVideoView(audioService),
-                            ],
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 320),
+                              transitionBuilder: (child, animation) => FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              ),
+                              child: _currentPage == 0
+                                  ? KeyedSubtree(
+                                      key: const ValueKey('thumb'),
+                                      child: _buildThumbnailView(track, isLocal),
+                                    )
+                                  : KeyedSubtree(
+                                      key: const ValueKey('video'),
+                                      child: _buildVideoView(audioService),
+                                    ),
+                            ),
                           )
                         : _buildThumbnailView(track, isLocal),
                   ),

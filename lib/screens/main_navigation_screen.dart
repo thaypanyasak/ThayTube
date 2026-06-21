@@ -19,8 +19,52 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
-  List<String> _previouslyDownloadedIds = [];
-  bool _isFirstLoad = true;
+  // Tracks IDs that have already been toasted — persists for the lifetime
+  // of this widget so re-builds and app resume never re-fire the toast.
+  final Set<String> _toastedIds = {};
+  DownloadService? _downloadService;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ds = Provider.of<DownloadService>(context, listen: false);
+    if (_downloadService != ds) {
+      _downloadService?.removeListener(_onDownloadsChanged);
+      _downloadService = ds;
+      // Seed the set with everything that is ALREADY downloaded so we
+      // never toast items that existed before this screen was first built.
+      for (final item in ds.downloadedItems) {
+        _toastedIds.add(item.id);
+      }
+      ds.addListener(_onDownloadsChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    _downloadService?.removeListener(_onDownloadsChanged);
+    super.dispose();
+  }
+
+  void _onDownloadsChanged() {
+    if (!mounted || _downloadService == null) return;
+    final ds = _downloadService!;
+    for (final item in ds.downloadedItems) {
+      if (!_toastedIds.contains(item.id)) {
+        _toastedIds.add(item.id);
+        // Show toast exactly once for this newly completed download.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          CustomToast.show(
+            context,
+            '${item.title} - ${context.tr('download_success')}',
+            icon: Icons.check_circle_rounded,
+            color: Colors.greenAccent,
+          );
+        });
+      }
+    }
+  }
 
   void _navigateToTab(int index) {
     setState(() {
@@ -33,31 +77,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final authService = Provider.of<AuthService>(context);
     final downloadService = Provider.of<DownloadService>(context);
 
-    final currentIds = downloadService.downloadedItems.map((item) => item.id).toList();
-
-    if (_isFirstLoad) {
-      _previouslyDownloadedIds = currentIds;
-      _isFirstLoad = false;
-    } else {
-      // Find new downloads
-      for (final id in currentIds) {
-        if (!_previouslyDownloadedIds.contains(id)) {
-          final newItem = downloadService.downloadedItems.firstWhere((item) => item.id == id);
-          
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            CustomToast.show(
-              context,
-              '${newItem.title} - ${context.tr('download_success')}',
-              icon: Icons.check_circle_rounded,
-              color: Colors.greenAccent,
-            );
-          });
-        }
-      }
-      _previouslyDownloadedIds = currentIds;
-    }
-
-    final badgeCount = downloadService.downloadingItems.length + downloadService.unwatchedIds.length;
+    final badgeCount = downloadService.downloadingItems.length +
+        downloadService.unwatchedIds.length;
 
     if (!authService.isInitialized) {
       return const Scaffold(

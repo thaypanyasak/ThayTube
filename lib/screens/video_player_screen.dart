@@ -49,10 +49,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
       _chewieController = ChewieController(
         videoPlayerController: _videoPlayerController!,
-        autoPlay: true,
+        autoPlay: false,
         looping: false,
+        allowPlaybackSpeedChanging: false,
         aspectRatio: _videoPlayerController!.value.aspectRatio,
         allowFullScreen: true,
+        showControlsOnInitialize: true,
         deviceOrientationsAfterFullScreen: [
           DeviceOrientation.portraitUp,
           DeviceOrientation.portraitDown,
