@@ -103,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _canGoBack = canGo;
               });
               // [ignoring loop detection]
-              // Inject JS: add playsinline to all video elements and inject dark theme CSS variables
+              // Inject JS: add playsinline to all video elements, inject dark theme/adblock CSS, and set up dynamic ad-skipping loop
               await _webController.runJavaScript('''
                 (function() {
                   try {
@@ -114,33 +114,76 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                     var target = document.head || document.documentElement || document.body;
                     if (target) {
-                      var style = document.getElementById('yt-dark-mode-style');
+                      var style = document.getElementById('yt-dark-mode-adblock-style');
                       if (!style) {
                         style = document.createElement('style');
-                        style.id = 'yt-dark-mode-style';
+                        style.id = 'yt-dark-mode-adblock-style';
                         style.type = 'text/css';
-                        style.innerHTML = 'html, body, ytm-topbar, .ytm-topbar, ytm-pivot-bar, .pivot-bar, .topbar, ytm-single-column-watch-next-results-renderer, ytm-item-section-renderer, ytm-media-item, .media-item, .item, .card { background-color: #0f0f0f !important; color: #ffffff !important; } :root { --yt-spec-brand-background-solid: #0f0f0f !important; --yt-spec-general-background-a: #0f0f0f !important; --yt-spec-general-background-b: #1f1f1f !important; --yt-spec-general-background-c: #2f2f2f !important; --yt-spec-text-primary: #ffffff !important; --yt-spec-text-secondary: #aaaaaa !important; --yt-spec-icon-active-other: #ffffff !important; --yt-spec-icon-inactive: #aaaaaa !important; --yt-spec-brand-background-primary: #0f0f0f !important; --yt-spec-brand-background-secondary: #0f0f0f !important; } input, ytm-searchbox, .searchbox, .search-box-container { background-color: #1f1f1f !important; color: #ffffff !important; } ytm-companion-ad-renderer, ytm-promoted-item-renderer, ytm-promoted-sparkles-web-renderer, ytm-install-app-promo, ytm-install-app-promo-renderer, ytm-mealbar-promo-renderer, .m-upsell-developer-promo, yt-install-app-promo-renderer, ytm-smart-app-banner, .ytm-app-promo, [aria-label="Install YouTube app"], ytm-unlimited-offer-page-renderer, .ad-container, .ad-image, .header-ad { display: none !important; }';
+                        style.innerHTML = 'html, body, ytm-topbar, .ytm-topbar, ytm-pivot-bar, .pivot-bar, .topbar, ytm-single-column-watch-next-results-renderer, ytm-item-section-renderer, ytm-media-item, .media-item, .item, .card { background-color: #0f0f0f !important; color: #ffffff !important; } :root { --yt-spec-brand-background-solid: #0f0f0f !important; --yt-spec-general-background-a: #0f0f0f !important; --yt-spec-general-background-b: #1f1f1f !important; --yt-spec-general-background-c: #2f2f2f !important; --yt-spec-text-primary: #ffffff !important; --yt-spec-text-secondary: #aaaaaa !important; --yt-spec-icon-active-other: #ffffff !important; --yt-spec-icon-inactive: #aaaaaa !important; --yt-spec-brand-background-primary: #0f0f0f !important; --yt-spec-brand-background-secondary: #0f0f0f !important; } input, ytm-searchbox, .searchbox, .search-box-container { background-color: #1f1f1f !important; color: #ffffff !important; } ytm-companion-ad-renderer, ytm-promoted-item-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-sparkles-text-search-renderer, ytm-install-app-promo, ytm-install-app-promo-renderer, ytm-mealbar-promo-renderer, .m-upsell-developer-promo, yt-install-app-promo-renderer, ytm-smart-app-banner, .ytm-app-promo, [aria-label="Install YouTube app"], ytm-unlimited-offer-page-renderer, .ad-container, .ad-image, .header-ad, .video-ads, .ytp-ad-module, .ytp-ad-image-overlay, .ytp-ad-text-overlay, .ytp-ad-overlay-container, ytm-message-renderer, .ytp-ad-overlay-slot, .ytm-ad-playability-overlay, .ytp-ad-progress-list, ytm-branded-banner-renderer, .sparkles-light-theme, [class*="ytm-ad-"], [class*="ytp-ad-"] { display: none !important; height: 0px !important; width: 0px !important; opacity: 0 !important; pointer-events: none !important; }';
                         target.appendChild(style);
                       }
                     }
+                    
+                    if (!window._adblock_interval_running) {
+                      window._adblock_interval_running = true;
+                      setInterval(function() {
+                        var skipButtons = [
+                          '.ytp-ad-skip-button',
+                          '.ytp-ad-skip-button-modern',
+                          '.videoAdUiSkipButton',
+                          '.ytm-ad-playability-overlay-skip-button',
+                          '.ytp-ad-skip-button-slot',
+                          '[class*="skip-button"]',
+                          '.ytp-ad-skip-button-text'
+                        ];
+                        skipButtons.forEach(function(selector) {
+                          var btn = document.querySelector(selector);
+                          if (btn) {
+                            btn.click();
+                            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                          }
+                        });
+
+                        var video = document.querySelector('video');
+                        var player = document.querySelector('.html5-video-player') || document.querySelector('#movie_player');
+                        var isAd = false;
+                        if (player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'))) {
+                          isAd = true;
+                        }
+                        if (document.querySelector('.ytp-ad-player-overlay') || document.querySelector('.ytp-ad-overlay-slot')) {
+                          isAd = true;
+                        }
+                        if (isAd && video) {
+                          video.muted = true;
+                          if (isFinite(video.duration) && video.duration > 0) {
+                            video.currentTime = video.duration - 0.1;
+                          }
+                          video.playbackRate = 16.0;
+                          video.play().catch(function(){});
+                        }
+                        var playabilityOverlay = document.querySelector('.ytm-ad-playability-overlay');
+                        if (playabilityOverlay) {
+                          playabilityOverlay.remove();
+                        }
+                      }, 250);
+                    }
+
                     document.querySelectorAll('video').forEach(function(v) {
                       v.setAttribute('playsinline', '');
                       v.setAttribute('webkit-playsinline', '');
-                      v.removeAttribute('autoplay');
                     });
+
                     var observer = new MutationObserver(function(mutations) {
                       mutations.forEach(function(m) {
                         m.addedNodes.forEach(function(node) {
                           if (node.tagName === 'VIDEO') {
                             node.setAttribute('playsinline', '');
                             node.setAttribute('webkit-playsinline', '');
-                            node.removeAttribute('autoplay');
                           }
                           if (node.querySelectorAll) {
                             node.querySelectorAll('video').forEach(function(v) {
                               v.setAttribute('playsinline', '');
                               v.setAttribute('webkit-playsinline', '');
-                              v.removeAttribute('autoplay');
                             });
                           }
                         });

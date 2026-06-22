@@ -7,6 +7,7 @@ import './services/audio_service.dart';
 import './services/audio_handler.dart';
 import './services/playlist_service.dart';
 import './services/language_service.dart';
+import './services/user_profile_service.dart';
 import './screens/main_navigation_screen.dart';
 
 void main() async {
@@ -26,10 +27,9 @@ void main() async {
         ChangeNotifierProvider(create: (_) => languageService),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => DownloadService()),
-        // Pass the handler so AudioService uses the same just_audio player
-        // that is already registered with the OS background service.
         ChangeNotifierProvider(create: (_) => AudioService(audioHandler)),
         ChangeNotifierProvider(create: (_) => PlaylistService()),
+        ChangeNotifierProvider(create: (_) => UserProfileService()),
       ],
       child: const ThayTubeApp(),
     ),

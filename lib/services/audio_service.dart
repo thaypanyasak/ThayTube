@@ -78,15 +78,23 @@ class AudioService extends ChangeNotifier {
       }
     });
 
+    DateTime lastVideoSync = DateTime.now();
+
     // Listen to position (Sync video controller drift if needed)
     _player.positionStream.listen((pos) {
       if (_currentTrack != null) {
         _position = pos;
 
-        if (_videoController != null && _videoController!.value.isInitialized) {
-          final diff = (pos - _videoController!.value.position).inMilliseconds.abs();
-          if (diff > 500) {
-            _videoController!.seekTo(pos);
+        if (_videoController != null && 
+            _videoController!.value.isInitialized && 
+            !_videoController!.value.isBuffering) {
+          final now = DateTime.now();
+          if (now.difference(lastVideoSync).inSeconds >= 3) {
+            final diff = (pos - _videoController!.value.position).inMilliseconds.abs();
+            if (diff > 1500) {
+              lastVideoSync = now;
+              _videoController!.seekTo(pos);
+            }
           }
         }
       }
@@ -146,9 +154,9 @@ class AudioService extends ChangeNotifier {
         }
       }
       if (!_isPlaying) {
-        await _player.play();
+        _player.play();
         if (_videoController != null) {
-          await _videoController!.play();
+          _videoController!.play();
         }
         _isPlaying = true;
         notifyListeners();
@@ -229,7 +237,7 @@ class AudioService extends ChangeNotifier {
       }
 
       // Start main audio playback immediately
-      await _player.play();
+      _player.play(); // DO NOT await play() as it blocks until playback finishes or pauses
       _isPlaying = true;
 
       // Update lock screen / Control Center metadata
@@ -308,9 +316,9 @@ class AudioService extends ChangeNotifier {
         await _videoController!.pause();
       }
     } else {
-      await _player.play();
+      _player.play();
       if (_videoController != null) {
-        await _videoController!.play();
+        _videoController!.play();
       }
     }
   }

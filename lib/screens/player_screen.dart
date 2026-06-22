@@ -18,20 +18,27 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderStateMixin {
   late PageController _pageController;
   final ValueNotifier<int> _currentPageNotifier = ValueNotifier<int>(0);
+  double? _dragValue;
+  late final AnimationController _dragController;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: 0);
+    _dragController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     _currentPageNotifier.dispose();
+    _dragController.dispose();
     super.dispose();
   }
 
@@ -127,30 +134,85 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final isMp4 = file.existsSync() && file.path.endsWith('.mp4');
     final hasVideo = track.isVideo || isMp4 || (audioService.videoController != null && audioService.videoController!.value.isInitialized);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F1A),
-      body: Stack(
-        children: [
-          // 1. Apple Music Style: Zoomed Background Image with Full Saturated Colors
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    return GestureDetector(
+      onVerticalDragUpdate: (details) {
+        if (details.primaryDelta != null && screenHeight > 0) {
+          _dragController.value = (_dragController.value + details.primaryDelta! / screenHeight).clamp(0.0, 1.0);
+        }
+      },
+      onVerticalDragEnd: (details) {
+        if (_dragController.value > 0.15 || (details.primaryVelocity ?? 0.0) > 300) {
+          _dragController.animateTo(1.0, curve: Curves.easeOutQuad).then((_) {
+            if (context.mounted) {
+              Navigator.pop(context);
+            }
+          });
+        } else {
+          _dragController.animateTo(0.0, curve: Curves.easeOutCubic);
+        }
+      },
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: Offset.zero,
+          end: const Offset(0.0, 1.0),
+        ).animate(CurvedAnimation(
+          parent: _dragController,
+          curve: Curves.linear,
+        )),
+        child: Scaffold(
+          backgroundColor: const Color(0xFF0F0F1A),
+          body: Stack(
+            children: [
+          // 1. Apple Music Style: Zoomed Background Image or Video
           Positioned.fill(
             child: ClipRect(
               child: Transform.scale(
                 scale: 2.2,
                 child: Opacity(
                   opacity: 0.85,
-                  child: isLocal
-                      ? Image.file(
-                          File(track.localThumbnailPath),
-                          fit: BoxFit.cover,
-                        )
-                      : Image.network(
-                          track.thumbnailUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: Colors.grey[900],
-                            child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _currentPageNotifier,
+                    builder: (context, currentPage, _) {
+                      final showVideoBackground = currentPage == 1 &&
+                          hasVideo &&
+                          audioService.videoController != null &&
+                          audioService.videoController!.value.isInitialized;
+
+                      if (showVideoBackground) {
+                        return IgnorePointer(
+                          child: FittedBox(
+                            fit: BoxFit.cover,
+                            clipBehavior: Clip.hardEdge,
+                            child: SizedBox(
+                              width: audioService.videoController!.value.size.width > 0
+                                  ? audioService.videoController!.value.size.width
+                                  : 16,
+                              height: audioService.videoController!.value.size.height > 0
+                                  ? audioService.videoController!.value.size.height
+                                  : 9,
+                              child: VideoPlayer(audioService.videoController!),
+                            ),
                           ),
-                        ),
+                        );
+                      }
+
+                      return isLocal
+                          ? Image.file(
+                              File(track.localThumbnailPath),
+                              fit: BoxFit.cover,
+                            )
+                          : Image.network(
+                              track.thumbnailUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Colors.grey[900],
+                                child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
+                              ),
+                            );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -425,11 +487,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             child: Slider(
                               min: 0.0,
                               max: totalDuration.inMilliseconds.toDouble(),
-                              value: currentPosition.inMilliseconds
+                              value: _dragValue ?? currentPosition.inMilliseconds
                                   .toDouble()
                                   .clamp(0.0, totalDuration.inMilliseconds.toDouble()),
                               onChanged: (value) {
-                                audioService.seek(Duration(milliseconds: value.toInt()));
+                                setState(() {
+                                  _dragValue = value;
+                                });
+                              },
+                              onChangeEnd: (value) async {
+                                await audioService.seek(Duration(milliseconds: value.toInt()));
+                                setState(() {
+                                  _dragValue = null;
+                                });
                               },
                             ),
                           ),
@@ -542,6 +612,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         ],
       ),
-    );
+    ),
+  ),
+);
   }
 }
