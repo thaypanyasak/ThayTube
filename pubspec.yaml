@@ -38,6 +38,7 @@ dependencies:
   path_provider: ^2.1.5
   just_audio: ^0.10.5
   audio_session: ^0.1.21
+  audio_service: ^0.18.17
   video_player: ^2.10.1
   chewie: ^1.12.1
   connectivity_plus: ^6.0.3

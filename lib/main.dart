@@ -4,15 +4,21 @@ import 'package:provider/provider.dart';
 import './services/auth_service.dart';
 import './services/download_service.dart';
 import './services/audio_service.dart';
+import './services/audio_handler.dart';
 import './services/playlist_service.dart';
 import './services/language_service.dart';
 import './screens/main_navigation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   final languageService = LanguageService();
   await languageService.init();
+
+  // Initialise background audio handler BEFORE runApp.
+  // This registers the app with the OS audio system so audio keeps playing
+  // when the screen is locked or the app goes to background.
+  final audioHandler = await initAudioHandler();
 
   runApp(
     MultiProvider(
@@ -20,13 +26,16 @@ void main() async {
         ChangeNotifierProvider(create: (_) => languageService),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => DownloadService()),
-        ChangeNotifierProvider(create: (_) => AudioService()),
+        // Pass the handler so AudioService uses the same just_audio player
+        // that is already registered with the OS background service.
+        ChangeNotifierProvider(create: (_) => AudioService(audioHandler)),
         ChangeNotifierProvider(create: (_) => PlaylistService()),
       ],
       child: const ThayTubeApp(),
     ),
   );
 }
+
 
 class ThayTubeApp extends StatelessWidget {
   const ThayTubeApp({super.key});

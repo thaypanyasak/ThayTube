@@ -149,6 +149,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
                   context: context,
                   isScrollControlled: true,
                   useSafeArea: true,
+                  enableDrag: false,
                   backgroundColor: Colors.transparent,
                   barrierColor: Colors.black54,
                   builder: (context) => const PlayerScreen(),
@@ -320,6 +321,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
     required Function(DownloadItem) onDelete,
   }) {
     final downloadService = Provider.of<DownloadService>(context, listen: false);
+    final audioService = Provider.of<AudioService>(context);
 
     if (items.isEmpty) {
       return Center(
@@ -332,7 +334,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
           ),
         ),
       );
-    }    return ListView.builder(
+    }
+    return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       itemCount: items.length,
       itemBuilder: (context, index) {
@@ -341,6 +344,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
         final status = downloadService.getStatus(item.id);
         final isDownloading = progress != null;
         final isUnwatched = downloadService.unwatchedIds.contains(item.id);
+        final isPlayingThis = audioService.currentTrack?.id == item.id;
 
         final thumbFile = File(item.localThumbnailPath);
         final fileExists = File(item.localFilePath).existsSync();
@@ -348,49 +352,109 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF161622),
+            color: isPlayingThis ? const Color(0xFF1E1E30) : const Color(0xFF161622),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
+            border: Border.all(
+              color: isPlayingThis 
+                  ? const Color(0xFFFF2A5F).withValues(alpha: 0.35) 
+                  : Colors.white.withValues(alpha: 0.05),
+              width: isPlayingThis ? 1.5 : 1.0,
+            ),
+            boxShadow: isPlayingThis ? [
+              BoxShadow(
+                color: const Color(0xFFFF2A5F).withValues(alpha: 0.12),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ] : null,
           ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              children: [
+                if (isPlayingThis)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 4,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFF2A5F),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0xFFFF2A5F),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ListTile(
+                  contentPadding: EdgeInsets.only(
+                    left: isPlayingThis ? 16 : 12,
+                    right: 12,
+                    top: 6,
+                    bottom: 6,
+                  ),
             leading: Stack(
               clipBehavior: Clip.none,
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: thumbFile.existsSync()
-                      ? Image.file(
-                          thumbFile,
-                          width: 80,
-                          height: 48,
-                          fit: BoxFit.cover,
-                        )
-                      : item.thumbnailUrl.isNotEmpty
-                          ? Image.network(
-                              item.thumbnailUrl,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      thumbFile.existsSync()
+                          ? Image.file(
+                              thumbFile,
                               width: 80,
                               height: 48,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                width: 80,
-                                height: 48,
-                                color: Colors.grey[900],
-                                child: const Icon(
-                                  Icons.video_collection,
-                                  color: Colors.white24,
-                                ),
-                              ),
                             )
-                          : Container(
-                              width: 80,
-                              height: 48,
-                              color: Colors.grey[900],
-                              child: const Icon(
-                                  Icons.video_collection,
-                                  color: Colors.white24,
+                          : item.thumbnailUrl.isNotEmpty
+                              ? Image.network(
+                                  item.thumbnailUrl,
+                                  width: 80,
+                                  height: 48,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 80,
+                                    height: 48,
+                                    color: Colors.grey[900],
+                                    child: const Icon(
+                                      Icons.video_collection,
+                                      color: Colors.white24,
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  width: 80,
+                                  height: 48,
+                                  color: Colors.grey[900],
+                                  child: const Icon(
+                                      Icons.video_collection,
+                                      color: Colors.white24,
+                                    ),
                                 ),
-                            ),
+                      if (isPlayingThis)
+                        Container(
+                          width: 80,
+                          height: 48,
+                          color: Colors.black.withValues(alpha: 0.65),
+                          child: Center(
+                            child: audioService.isPlaying
+                                ? const MiniEqualizer()
+                                : const Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 if (isUnwatched)
                   Positioned(
@@ -405,7 +469,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
                         border: Border.all(color: const Color(0xFF161622), width: 1.5),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFFF2A5F).withOpacity(0.5),
+                            color: const Color(0xFFFF2A5F).withValues(alpha: 0.5),
                             blurRadius: 6,
                             spreadRadius: 1,
                           ),
@@ -417,9 +481,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
             ),
             title: Text(
               item.title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+              style: TextStyle(
+                color: isPlayingThis ? const Color(0xFFFF5281) : Colors.white,
+                fontWeight: isPlayingThis ? FontWeight.bold : FontWeight.w600,
                 fontSize: 14,
               ),
               maxLines: 2,
@@ -431,7 +495,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
                 const SizedBox(height: 4),
                 Text(
                   item.author,
-                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 12,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -470,21 +537,33 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
                     children: [
                       Text(
                         item.durationString,
-                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        style: TextStyle(
+                          color: isPlayingThis 
+                              ? const Color(0xFFFF2A5F).withValues(alpha: 0.5) 
+                              : Colors.white38,
+                          fontSize: 11,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Container(
                         width: 3,
                         height: 3,
-                        decoration: const BoxDecoration(
-                          color: Colors.white30,
+                        decoration: BoxDecoration(
+                          color: isPlayingThis 
+                              ? const Color(0xFFFF2A5F).withValues(alpha: 0.5) 
+                              : Colors.white30,
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         item.fileSizeString,
-                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        style: TextStyle(
+                          color: isPlayingThis 
+                              ? const Color(0xFFFF2A5F).withValues(alpha: 0.5) 
+                              : Colors.white38,
+                          fontSize: 11,
+                        ),
                       ),
                       if (!fileExists) ...[
                         const SizedBox(width: 8),
@@ -511,7 +590,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.playlist_add, color: Colors.white70),
+                        icon: Icon(
+                          Icons.playlist_add,
+                          color: isPlayingThis 
+                              ? const Color(0xFFFF2A5F).withValues(alpha: 0.8) 
+                              : Colors.white70,
+                        ),
                         onPressed: () => showPlaylistSelectionBottomSheet(context, item),
                       ),
                       IconButton(
@@ -522,7 +606,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
                   ),
             onTap: isDownloading ? null : (fileExists ? () => onPlay(item) : null),
           ),
-        );
+        ],
+      ),
+    ),
+  );
       },
     );
   }
@@ -554,6 +641,74 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
           ),
         ],
       ),
+    );
+  }
+}
+
+class MiniEqualizer extends StatefulWidget {
+  const MiniEqualizer({super.key});
+
+  @override
+  State<MiniEqualizer> createState() => _MiniEqualizerState();
+}
+
+class _MiniEqualizerState extends State<MiniEqualizer> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late List<Animation<double>> _animations;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+
+    _animations = List.generate(3, (index) {
+      final begin = 0.2 + (index * 0.25);
+      return Tween<double>(begin: begin, end: 1.0).animate(
+        CurvedAnimation(
+          parent: _controller,
+          curve: Interval(index * 0.2, 1.0, curve: Curves.easeInOut),
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(3, (index) {
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return Container(
+              width: 3.5,
+              height: 16 * _animations[index].value,
+              margin: const EdgeInsets.symmetric(horizontal: 1.5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF2A5F),
+                borderRadius: BorderRadius.circular(2),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFF2A5F).withValues(alpha: 0.6),
+                    blurRadius: 4,
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      }),
     );
   }
 }

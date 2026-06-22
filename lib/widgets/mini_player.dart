@@ -15,9 +15,6 @@ class MiniPlayer extends StatelessWidget {
     if (track == null) return const SizedBox.shrink();
 
     final isLocal = File(track.localThumbnailPath).existsSync();
-    final progress = audioService.duration.inMilliseconds > 0
-        ? audioService.position.inMilliseconds / audioService.duration.inMilliseconds
-        : 0.0;
 
     return GestureDetector(
       onTap: () {
@@ -25,6 +22,7 @@ class MiniPlayer extends StatelessWidget {
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
+          enableDrag: false,
           backgroundColor: Colors.transparent,
           barrierColor: Colors.black54,
           builder: (context) => const PlayerScreen(),
@@ -34,12 +32,12 @@ class MiniPlayer extends StatelessWidget {
         height: 64,
         margin: const EdgeInsets.fromLTRB(12, 6, 12, 0),
         decoration: BoxDecoration(
-          color: const Color(0xFF161622).withOpacity(0.95),
+          color: const Color(0xFF161622).withValues(alpha: 0.95),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.35),
+              color: Colors.black.withValues(alpha: 0.35),
               blurRadius: 10,
               offset: const Offset(0, -2),
             ),
@@ -100,7 +98,7 @@ class MiniPlayer extends StatelessWidget {
                           Text(
                             track.author,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
+                              color: Colors.white.withValues(alpha: 0.6),
                               fontSize: 11,
                             ),
                             maxLines: 1,
@@ -154,10 +152,21 @@ class MiniPlayer extends StatelessWidget {
                 right: 0,
                 child: SizedBox(
                   height: 3,
-                  child: LinearProgressIndicator(
-                    value: progress.clamp(0.0, 1.0),
-                    backgroundColor: Colors.white.withOpacity(0.1),
-                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF2A5F)),
+                  child: StreamBuilder<Duration>(
+                    stream: audioService.positionStream,
+                    initialData: audioService.position,
+                    builder: (context, snapshot) {
+                      final currentPosition = snapshot.data ?? Duration.zero;
+                      final totalDuration = audioService.duration;
+                      final progress = totalDuration.inMilliseconds > 0
+                          ? currentPosition.inMilliseconds / totalDuration.inMilliseconds
+                          : 0.0;
+                      return LinearProgressIndicator(
+                        value: progress.clamp(0.0, 1.0),
+                        backgroundColor: Colors.white.withValues(alpha: 0.1),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF2A5F)),
+                      );
+                    },
                   ),
                 ),
               ),

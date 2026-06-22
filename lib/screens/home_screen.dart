@@ -73,8 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final controller = WebViewController.fromPlatformCreationParams(params)
       ..setUserAgent(Platform.isIOS
-          ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
-          : 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36')
+          ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+          : 'Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36')
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0F0F1A))
       ..setNavigationDelegate(
@@ -102,34 +102,52 @@ class _HomeScreenState extends State<HomeScreen> {
                 _currentUrl = url;
                 _canGoBack = canGo;
               });
-              // Inject JS: add playsinline to all video elements so iOS
-              // renders them inline, and remove any autoplay attributes.
+              // [ignoring loop detection]
+              // Inject JS: add playsinline to all video elements and inject dark theme CSS variables
               await _webController.runJavaScript('''
                 (function() {
-                  document.querySelectorAll('video').forEach(function(v) {
-                    v.setAttribute('playsinline', '');
-                    v.setAttribute('webkit-playsinline', '');
-                    v.removeAttribute('autoplay');
-                  });
-                  var observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(m) {
-                      m.addedNodes.forEach(function(node) {
-                        if (node.tagName === 'VIDEO') {
-                          node.setAttribute('playsinline', '');
-                          node.setAttribute('webkit-playsinline', '');
-                          node.removeAttribute('autoplay');
-                        }
-                        if (node.querySelectorAll) {
-                          node.querySelectorAll('video').forEach(function(v) {
-                            v.setAttribute('playsinline', '');
-                            v.setAttribute('webkit-playsinline', '');
-                            v.removeAttribute('autoplay');
-                          });
-                        }
+                  try {
+                    var htmlEl = document.documentElement;
+                    if (htmlEl) {
+                      htmlEl.setAttribute('dark', 'true');
+                      htmlEl.setAttribute('theme', 'DARK');
+                    }
+                    var target = document.head || document.documentElement || document.body;
+                    if (target) {
+                      var style = document.getElementById('yt-dark-mode-style');
+                      if (!style) {
+                        style = document.createElement('style');
+                        style.id = 'yt-dark-mode-style';
+                        style.type = 'text/css';
+                        style.innerHTML = 'html, body, ytm-topbar, .ytm-topbar, ytm-pivot-bar, .pivot-bar, .topbar, ytm-single-column-watch-next-results-renderer, ytm-item-section-renderer, ytm-media-item, .media-item, .item, .card { background-color: #0f0f0f !important; color: #ffffff !important; } :root { --yt-spec-brand-background-solid: #0f0f0f !important; --yt-spec-general-background-a: #0f0f0f !important; --yt-spec-general-background-b: #1f1f1f !important; --yt-spec-general-background-c: #2f2f2f !important; --yt-spec-text-primary: #ffffff !important; --yt-spec-text-secondary: #aaaaaa !important; --yt-spec-icon-active-other: #ffffff !important; --yt-spec-icon-inactive: #aaaaaa !important; --yt-spec-brand-background-primary: #0f0f0f !important; --yt-spec-brand-background-secondary: #0f0f0f !important; } input, ytm-searchbox, .searchbox, .search-box-container { background-color: #1f1f1f !important; color: #ffffff !important; } ytm-companion-ad-renderer, ytm-promoted-item-renderer, ytm-promoted-sparkles-web-renderer, ytm-install-app-promo, ytm-install-app-promo-renderer, ytm-mealbar-promo-renderer, .m-upsell-developer-promo, yt-install-app-promo-renderer, ytm-smart-app-banner, .ytm-app-promo, [aria-label="Install YouTube app"], ytm-unlimited-offer-page-renderer, .ad-container, .ad-image, .header-ad { display: none !important; }';
+                        target.appendChild(style);
+                      }
+                    }
+                    document.querySelectorAll('video').forEach(function(v) {
+                      v.setAttribute('playsinline', '');
+                      v.setAttribute('webkit-playsinline', '');
+                      v.removeAttribute('autoplay');
+                    });
+                    var observer = new MutationObserver(function(mutations) {
+                      mutations.forEach(function(m) {
+                        m.addedNodes.forEach(function(node) {
+                          if (node.tagName === 'VIDEO') {
+                            node.setAttribute('playsinline', '');
+                            node.setAttribute('webkit-playsinline', '');
+                            node.removeAttribute('autoplay');
+                          }
+                          if (node.querySelectorAll) {
+                            node.querySelectorAll('video').forEach(function(v) {
+                              v.setAttribute('playsinline', '');
+                              v.setAttribute('webkit-playsinline', '');
+                              v.removeAttribute('autoplay');
+                            });
+                          }
+                        });
                       });
                     });
-                  });
-                  observer.observe(document.body, { childList: true, subtree: true });
+                    observer.observe(document.body, { childList: true, subtree: true });
+                  } catch (e) {}
                 })();
               ''');
             }
@@ -148,8 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
             return NavigationDecision.navigate;
           },
         ),
-      )
-      ..loadRequest(Uri.parse('https://m.youtube.com'));
+      );
 
     if (controller.platform is WebKitWebViewController) {
       (controller.platform as WebKitWebViewController)
@@ -158,6 +175,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _webController = controller;
     _isWebInitialized = true;
+    _loadModernYoutube();
+  }
+
+  Future<void> _loadModernYoutube() async {
+    try {
+      final cookieManager = WebViewCookieManager();
+      // Clear cookies once to force clean slate without old layout settings
+      await cookieManager.clearCookies();
+    } catch (e) {
+      debugPrint('Error clearing cookies: $e');
+    }
+    await _webController.loadRequest(Uri.parse('https://m.youtube.com'));
   }
 
   bool _showDownloadButton() {

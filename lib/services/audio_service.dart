@@ -6,12 +6,19 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:video_player/video_player.dart';
 import '../models/download_item.dart';
 import './youtube_service.dart';
+import './audio_handler.dart';
 
 class AudioService extends ChangeNotifier {
-  final AudioPlayer _player = AudioPlayer();
+  // ── Core players ─────────────────────────────────────────────────────────
+  final ThayTubeAudioHandler _handler;
+
+  /// Convenience getter: the underlying just_audio player inside the handler.
+  AudioPlayer get _player => _handler.player;
+
   final YoutubeService _youtubeService = YoutubeService();
   VideoPlayerController? _videoController;
 
+  // ── State ─────────────────────────────────────────────────────────────────
   DownloadItem? _currentTrack;
   List<DownloadItem> _playlist = [];
   int _currentIndex = -1;
@@ -24,11 +31,12 @@ class AudioService extends ChangeNotifier {
   bool _shuffleModeEnabled = false;
   bool _isLoading = false;
 
-  // Getters
+  // ── Getters ───────────────────────────────────────────────────────────────
   DownloadItem? get currentTrack => _currentTrack;
   List<DownloadItem> get playlist => _playlist;
   bool get isPlaying => _isPlaying;
   Duration get position => _position;
+  Stream<Duration> get positionStream => _player.positionStream;
   Duration get duration => _duration;
   Duration get bufferedPosition => _bufferedPosition;
   LoopMode get loopMode => _loopMode;
@@ -36,17 +44,33 @@ class AudioService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   VideoPlayerController? get videoController => _videoController;
 
-  AudioService() {
+  AudioService(this._handler) {
     _init();
   }
 
   void _init() {
     _initAudioSession();
 
-    // Listen to player state
+    // Listen to OS "next/previous" commands forwarded via customEvent
+    _handler.customEvent.listen((event) {
+      if (event == 'next') next();
+      if (event == 'previous') previous();
+    });
+
+    // Listen to player state (Always drive UI from _player)
     _player.playerStateStream.listen((state) {
-      if (_currentTrack != null && _videoController == null) {
+      if (_currentTrack != null) {
         _isPlaying = state.playing;
+
+        // Keep video player in sync with main audio player play/pause state
+        if (_videoController != null && _videoController!.value.isInitialized) {
+          if (state.playing && !_videoController!.value.isPlaying) {
+            _videoController!.play();
+          } else if (!state.playing && _videoController!.value.isPlaying) {
+            _videoController!.pause();
+          }
+        }
+
         if (state.processingState == ProcessingState.completed) {
           _handleTrackCompleted();
         }
@@ -54,17 +78,23 @@ class AudioService extends ChangeNotifier {
       }
     });
 
-    // Listen to position
+    // Listen to position (Sync video controller drift if needed)
     _player.positionStream.listen((pos) {
-      if (_currentTrack != null && _videoController == null) {
+      if (_currentTrack != null) {
         _position = pos;
-        notifyListeners();
+
+        if (_videoController != null && _videoController!.value.isInitialized) {
+          final diff = (pos - _videoController!.value.position).inMilliseconds.abs();
+          if (diff > 500) {
+            _videoController!.seekTo(pos);
+          }
+        }
       }
     });
 
     // Listen to duration
     _player.durationStream.listen((dur) {
-      if (_currentTrack != null && _videoController == null) {
+      if (_currentTrack != null) {
         _duration = dur ?? Duration.zero;
         notifyListeners();
       }
@@ -72,7 +102,7 @@ class AudioService extends ChangeNotifier {
 
     // Listen to buffered position
     _player.bufferedPositionStream.listen((buf) {
-      if (_currentTrack != null && _videoController == null) {
+      if (_currentTrack != null) {
         _bufferedPosition = buf;
         notifyListeners();
       }
@@ -97,34 +127,41 @@ class AudioService extends ChangeNotifier {
 
   void _onVideoControllerUpdate() {
     if (_videoController == null) return;
-    _position = _videoController!.value.position;
-    _duration = _videoController!.value.duration;
-    _isPlaying = _videoController!.value.isPlaying;
     
-    if (_videoController!.value.buffered.isNotEmpty) {
-      _bufferedPosition = _videoController!.value.buffered.last.end;
-    } else {
-      _bufferedPosition = Duration.zero;
+    // If the video controller is playing but audio isn't, pause it.
+    if (_videoController!.value.isPlaying && !_player.playing) {
+      _videoController!.pause();
     }
-    
-    // Auto advance when video ends
-    if (_videoController!.value.isInitialized &&
-        _videoController!.value.position >= _videoController!.value.duration &&
-        _videoController!.value.duration > Duration.zero &&
-        !_videoController!.value.isPlaying) {
-      _handleTrackCompleted();
-    }
-    notifyListeners();
   }
 
-  // Play a track and set up playlist context
+  // ── Play a track ──────────────────────────────────────────────────────────
   Future<void> playTrack(DownloadItem track, {List<DownloadItem>? contextPlaylist}) async {
+    if (_currentTrack?.id == track.id) {
+      if (contextPlaylist != null) {
+        _playlist = List.from(contextPlaylist);
+        _currentIndex = _playlist.indexWhere((t) => t.id == track.id);
+        if (_currentIndex == -1) {
+          _playlist.insert(0, track);
+          _currentIndex = 0;
+        }
+      }
+      if (!_isPlaying) {
+        await _player.play();
+        if (_videoController != null) {
+          await _videoController!.play();
+        }
+        _isPlaying = true;
+        notifyListeners();
+      }
+      return;
+    }
+
     _isLoading = true;
     await _stopControllers();
     _currentTrack = track;
     notifyListeners();
 
-    // Record to watch history for local recommendation matching (Implicit Feedback)
+    // Record to watch history
     try {
       YoutubeService.recordWatchHistory(track.id, track.title, track.author);
     } catch (e) {
@@ -139,6 +176,10 @@ class AudioService extends ChangeNotifier {
         _playlist = [track];
         _currentIndex = 0;
       }
+      if (_currentIndex == -1) {
+        _playlist.insert(0, track);
+        _currentIndex = 0;
+      }
 
       // Resolve file path first
       File file = File(track.localFilePath);
@@ -146,7 +187,9 @@ class AudioService extends ChangeNotifier {
         final lastDot = track.localFilePath.lastIndexOf('.');
         if (lastDot != -1) {
           final pathWithoutExt = track.localFilePath.substring(0, lastDot);
-          final altPath = track.localFilePath.endsWith('.m4a') ? '$pathWithoutExt.mp4' : '$pathWithoutExt.m4a';
+          final altPath = track.localFilePath.endsWith('.m4a')
+              ? '$pathWithoutExt.mp4'
+              : '$pathWithoutExt.m4a';
           final altFile = File(altPath);
           if (altFile.existsSync()) {
             file = altFile;
@@ -154,39 +197,98 @@ class AudioService extends ChangeNotifier {
         }
       }
 
-      final playsAsVideo = track.isVideo || (file.existsSync() && file.path.endsWith('.mp4'));
+      final playsAsVideo =
+          track.isVideo || (file.existsSync() && file.path.endsWith('.mp4'));
 
-      if (playsAsVideo) {
-        if (file.existsSync()) {
-          _videoController = VideoPlayerController.file(file);
-        } else {
-          // Play online stream URL as video
-          final manifest = await _youtubeService.getStreamManifest(track.id);
-          final videoStream = manifest.muxed.withHighestBitrate();
-          _videoController = VideoPlayerController.network(videoStream.url.toString());
-        }
+      StreamManifest? manifest;
 
-        await _videoController!.initialize();
-        _videoController!.addListener(_onVideoControllerUpdate);
-        await _videoController!.play();
-        _isPlaying = true;
+      // 1. Play the Audio stream/file via just_audio (_player) for background capability
+      if (file.existsSync()) {
+        await _player.setAudioSource(AudioSource.file(file.path));
       } else {
-        if (file.existsSync()) {
-          // Play local offline file
-          await _player.setAudioSource(AudioSource.file(file.path));
-        } else {
-          // Play online stream url
-          final manifest = await _youtubeService.getStreamManifest(track.id);
-          if (manifest.audioOnly.isEmpty) {
-            throw Exception("No audio streams available.");
+        manifest = await _youtubeService.getStreamManifest(track.id);
+        
+        final AudioStreamInfo selectedAudioStream;
+        if (Platform.isIOS) {
+          // iOS AVPlayer does not support Opus/WebM natively. Select highest quality AAC (M4A) stream.
+          final aacStreams = manifest.audioOnly
+              .where((s) => s.container.name == 'm4a' || s.container.name == 'mp4' || s.audioCodec.contains('mp4a'))
+              .toList();
+          if (aacStreams.isNotEmpty) {
+            aacStreams.sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+            selectedAudioStream = aacStreams.first;
+          } else {
+            selectedAudioStream = manifest.audioOnly.withHighestBitrate();
           }
-          final sortedAudio = List<AudioOnlyStreamInfo>.from(manifest.audioOnly)
-            ..sort((a, b) => b.size.totalBytes.compareTo(a.size.totalBytes));
-          final audioStream = sortedAudio.first;
-          await _player.setAudioSource(AudioSource.uri(audioStream.url));
+        } else {
+          // Android (ExoPlayer natively plays Opus/WebM at peak quality)
+          selectedAudioStream = manifest.audioOnly.withHighestBitrate();
         }
-        await _player.play();
-        _isPlaying = true;
+        
+        await _player.setAudioSource(AudioSource.uri(selectedAudioStream.url));
+      }
+
+      // Start main audio playback immediately
+      await _player.play();
+      _isPlaying = true;
+
+      // Update lock screen / Control Center metadata
+      _handler.updateNowPlayingInfo(
+        id: track.id,
+        title: track.title,
+        artist: track.author,
+        artUri: track.thumbnailUrl,
+        duration: Duration(milliseconds: track.durationMs),
+      );
+
+      // 2. If it has a video track, load the video feed via VideoPlayerController (MUTED) asynchronously
+      if (playsAsVideo) {
+        final VideoPlayerController controller;
+        if (file.existsSync()) {
+          controller = VideoPlayerController.file(
+            file,
+            videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+          );
+        } else {
+          manifest ??= await _youtubeService.getStreamManifest(track.id);
+          
+          VideoStreamInfo? videoStream;
+          if (manifest.video.isNotEmpty) {
+            videoStream = manifest.video.withHighestBitrate();
+          } else if (manifest.muxed.isNotEmpty) {
+            videoStream = manifest.muxed.withHighestBitrate();
+          }
+          
+          if (videoStream == null) {
+            throw Exception('No video streams found in manifest');
+          }
+
+          controller = VideoPlayerController.networkUrl(
+            videoStream.url,
+            videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+          );
+        }
+
+        _videoController = controller;
+
+        // Initialize asynchronously in the background so it doesn't block the start of audio play
+        controller.initialize().then((_) async {
+          if (_videoController == controller) {
+            await controller.setVolume(0.0);
+            controller.addListener(_onVideoControllerUpdate);
+            
+            // Sync current audio position
+            final currentAudioPos = _player.position;
+            await controller.seekTo(currentAudioPos);
+
+            if (_player.playing) {
+              await controller.play();
+            }
+            notifyListeners();
+          }
+        }).catchError((e) {
+          debugPrint('Error initializing video controller: $e');
+        });
       }
     } catch (e) {
       debugPrint('Error playing track: $e');
@@ -196,44 +298,33 @@ class AudioService extends ChangeNotifier {
     }
   }
 
-  // Play / Pause toggle
+  // ── Play / Pause toggle ───────────────────────────────────────────────────
   Future<void> togglePlay() async {
     if (_currentTrack == null) return;
-    
-    if (_currentTrack!.isVideo) {
+
+    if (_isPlaying) {
+      await _player.pause();
       if (_videoController != null) {
-        if (_videoController!.value.isPlaying) {
-          await _videoController!.pause();
-          _isPlaying = false;
-        } else {
-          await _videoController!.play();
-          _isPlaying = true;
-        }
-        notifyListeners();
+        await _videoController!.pause();
       }
     } else {
-      if (_isPlaying) {
-        await _player.pause();
-      } else {
-        await _player.play();
+      await _player.play();
+      if (_videoController != null) {
+        await _videoController!.play();
       }
     }
   }
 
-  // Seek to position
+  // ── Seek ──────────────────────────────────────────────────────────────────
   Future<void> seek(Duration position) async {
     if (_currentTrack == null) return;
-
-    if (_currentTrack!.isVideo) {
-      if (_videoController != null) {
-        await _videoController!.seekTo(position);
-      }
-    } else {
-      await _player.seek(position);
+    await _player.seek(position);
+    if (_videoController != null) {
+      await _videoController!.seekTo(position);
     }
   }
 
-  // Stop playback
+  // ── Stop ──────────────────────────────────────────────────────────────────
   Future<void> stop() async {
     await _stopControllers();
     _currentTrack = null;
@@ -242,28 +333,26 @@ class AudioService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Next track
+  // ── Next / Previous ───────────────────────────────────────────────────────
   Future<void> next() async {
     if (_playlist.isEmpty || _currentIndex == -1) return;
-    
+
     int nextIndex = _currentIndex + 1;
     if (nextIndex >= _playlist.length) {
       if (_loopMode == LoopMode.all) {
         nextIndex = 0;
       } else {
-        return; // No next track
+        return;
       }
     }
-    
+
     _currentIndex = nextIndex;
     await playTrack(_playlist[_currentIndex]);
   }
 
-  // Previous track
   Future<void> previous() async {
     if (_playlist.isEmpty || _currentIndex == -1) return;
 
-    // If we've played for more than 3 seconds, restart the song
     if (_position.inSeconds > 3) {
       await seek(Duration.zero);
       return;
@@ -282,7 +371,7 @@ class AudioService extends ChangeNotifier {
     await playTrack(_playlist[_currentIndex]);
   }
 
-  // Cycle loop modes
+  // ── Loop / Shuffle ────────────────────────────────────────────────────────
   void toggleLoopMode() {
     if (_loopMode == LoopMode.off) {
       _loopMode = LoopMode.one;
@@ -297,17 +386,15 @@ class AudioService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Toggle shuffle
   void toggleShuffle() {
     _shuffleModeEnabled = !_shuffleModeEnabled;
     _player.setShuffleModeEnabled(_shuffleModeEnabled);
     notifyListeners();
   }
 
-  // Handle auto-advancing when track completes
   void _handleTrackCompleted() {
     if (_loopMode == LoopMode.one) {
-      // Handled by player itself
+      // handled by just_audio itself
     } else {
       next();
     }
@@ -316,25 +403,19 @@ class AudioService extends ChangeNotifier {
   Future<void> _initAudioSession() async {
     try {
       final session = await AudioSession.instance;
-      // AVAudioSessionCategoryPlayback keeps audio alive when:
-      // - Screen locks
-      // - App goes to background (not killed)
-      // - Silent switch is toggled
-      await session.configure(const AudioSessionConfiguration(
+      await session.configure(AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playback,
-        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth,
-        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
+            AVAudioSessionCategoryOptions.allowAirPlay,
+        avAudioSessionMode: AVAudioSessionMode.moviePlayback,
         avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
-        androidAudioAttributes: AndroidAudioAttributes(
+        androidAudioAttributes: const AndroidAudioAttributes(
           contentType: AndroidAudioContentType.music,
-          flags: AndroidAudioFlags.none,
           usage: AndroidAudioUsage.media,
         ),
         androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
         androidWillPauseWhenDucked: true,
       ));
-      // Activate the session immediately
       await session.setActive(true);
     } catch (e) {
       debugPrint('Error initializing audio session: $e');

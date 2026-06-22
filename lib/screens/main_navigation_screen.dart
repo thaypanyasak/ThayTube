@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
 import '../services/language_service.dart';
@@ -19,10 +20,36 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
-  // Tracks IDs that have already been toasted — persists for the lifetime
-  // of this widget so re-builds and app resume never re-fire the toast.
+
+  // IDs that have already been toasted — loaded from AND saved to
+  // SharedPreferences so they persist across widget rebuilds AND app restarts.
   final Set<String> _toastedIds = {};
+  bool _toastedIdsLoaded = false;
+
   DownloadService? _downloadService;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadToastedIds();
+  }
+
+  /// Load previously toasted IDs from disk so we never re-toast on app relaunch.
+  Future<void> _loadToastedIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('toasted_download_ids') ?? [];
+    if (mounted) {
+      setState(() {
+        _toastedIds.addAll(saved);
+        _toastedIdsLoaded = true;
+      });
+    }
+  }
+
+  Future<void> _saveToastedIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('toasted_download_ids', _toastedIds.toList());
+  }
 
   @override
   void didChangeDependencies() {
@@ -31,11 +58,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     if (_downloadService != ds) {
       _downloadService?.removeListener(_onDownloadsChanged);
       _downloadService = ds;
-      // Seed the set with everything that is ALREADY downloaded so we
-      // never toast items that existed before this screen was first built.
-      for (final item in ds.downloadedItems) {
-        _toastedIds.add(item.id);
-      }
       ds.addListener(_onDownloadsChanged);
     }
   }
@@ -47,23 +69,31 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _onDownloadsChanged() {
-    if (!mounted || _downloadService == null) return;
+    // Wait until we've loaded the persisted IDs from disk before showing
+    // any toasts — prevents false positives during the async startup load.
+    if (!mounted || _downloadService == null || !_toastedIdsLoaded) return;
+
     final ds = _downloadService!;
+    bool anyNew = false;
+    final successMsg = Provider.of<LanguageService>(context, listen: false).translate('download_success');
+
     for (final item in ds.downloadedItems) {
       if (!_toastedIds.contains(item.id)) {
         _toastedIds.add(item.id);
-        // Show toast exactly once for this newly completed download.
+        anyNew = true;
+        // Show toast exactly once per completed download.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           CustomToast.show(
             context,
-            '${item.title} - ${context.tr('download_success')}',
+            '${item.title} - $successMsg',
             icon: Icons.check_circle_rounded,
             color: Colors.greenAccent,
           );
         });
       }
     }
+    if (anyNew) _saveToastedIds();
   }
 
   void _navigateToTab(int index) {
@@ -71,6 +101,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       _currentIndex = index;
     });
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -111,7 +142,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           border: Border(
-            top: BorderSide(color: Colors.white.withOpacity(0.06), width: 1.0),
+            top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 1.0),
           ),
         ),
         child: BottomNavigationBar(

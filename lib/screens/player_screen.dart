@@ -20,7 +20,7 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   late PageController _pageController;
-  int _currentPage = 0;
+  final ValueNotifier<int> _currentPageNotifier = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -31,6 +31,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+    _currentPageNotifier.dispose();
     super.dispose();
   }
 
@@ -45,9 +46,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       case LoopMode.one:
         return Icons.repeat_one;
       case LoopMode.all:
-        return Icons.repeat;
       case LoopMode.off:
-      default:
         return Icons.repeat;
     }
   }
@@ -77,18 +76,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget _buildVideoView(AudioService audioService) {
     if (audioService.videoController != null && audioService.videoController!.value.isInitialized) {
       return RepaintBoundary(
-        child: Center(
-          child: SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: audioService.videoController!.value.size.width > 0
-                    ? audioService.videoController!.value.size.width
-                    : 16,
-                height: audioService.videoController!.value.size.height > 0
-                    ? audioService.videoController!.value.size.height
-                    : 9,
-                child: VideoPlayer(audioService.videoController!),
+        child: IgnorePointer(
+          child: ClipRect(
+            child: Center(
+              child: SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  clipBehavior: Clip.hardEdge,
+                  child: SizedBox(
+                    width: audioService.videoController!.value.size.width > 0
+                        ? audioService.videoController!.value.size.width
+                        : 16,
+                    height: audioService.videoController!.value.size.height > 0
+                        ? audioService.videoController!.value.size.height
+                        : 9,
+                    child: VideoPlayer(audioService.videoController!),
+                  ),
+                ),
               ),
             ),
           ),
@@ -127,45 +131,71 @@ class _PlayerScreenState extends State<PlayerScreen> {
       backgroundColor: const Color(0xFF0F0F1A),
       body: Stack(
         children: [
-          // 1. Zoomed & Blurred Background (Video or Image)
+          // 1. Apple Music Style: Zoomed Background Image with Full Saturated Colors
           Positioned.fill(
             child: ClipRect(
-              child: _currentPage == 1 && track.isVideo && audioService.videoController != null && audioService.videoController!.value.isInitialized
-                  ? Transform.scale(
-                      scale: 3.5,
-                      child: Opacity(
-                        opacity: 0.35,
-                        child: VideoPlayer(audioService.videoController!),
-                      ),
-                    )
-                  : Transform.scale(
-                      scale: 1.8,
-                      child: Opacity(
-                        opacity: 0.35,
-                        child: isLocal
-                            ? Image.file(
-                                File(track.localThumbnailPath),
-                                fit: BoxFit.cover,
-                              )
-                            : Image.network(
-                                track.thumbnailUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Container(
-                                  color: Colors.grey[900],
-                                  child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
-                                ),
-                              ),
-                      ),
-                    ),
+              child: Transform.scale(
+                scale: 2.2,
+                child: Opacity(
+                  opacity: 0.85,
+                  child: isLocal
+                      ? Image.file(
+                          File(track.localThumbnailPath),
+                          fit: BoxFit.cover,
+                        )
+                      : Image.network(
+                          track.thumbnailUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: Colors.grey[900],
+                            child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
+                          ),
+                        ),
+                ),
+              ),
             ),
           ),
           
-          // 2. Translucent overlay to darken and blur background
+          // 2. Heavy Blur Filter to blend the image colors into fluid abstract gradients
           Positioned.fill(
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+              filter: ImageFilter.blur(sigmaX: 55, sigmaY: 55),
               child: Container(
-                color: const Color(0xFF0F0F1A).withOpacity(0.65),
+                color: Colors.transparent,
+              ),
+            ),
+          ),
+
+          // 3. Ambient Linear Gradient Overlay (Apple Music style: clear top & bottom, glowing center)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFF0F0F1A).withValues(alpha: 0.6),
+                    const Color(0xFF0F0F1A).withValues(alpha: 0.35),
+                    const Color(0xFF0F0F1A).withValues(alpha: 0.85),
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+              ),
+            ),
+          ),
+
+          // 4. Soft Vignette Radial Gradient to focus attention on the main content
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.2,
+                  colors: [
+                    Colors.transparent,
+                    const Color(0xFF0F0F1A).withValues(alpha: 0.65),
+                  ],
+                ),
               ),
             ),
           ),
@@ -241,7 +271,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           downloadService.deleteDownload(track.id);
                                           Navigator.pop(context);
                                         },
-                                        child: Text(context.tr('delete'), style: const TextStyle(color: const Color(0xFFFF2A5F))),
+                                        child: Text(context.tr('delete'), style: const TextStyle(color: Color(0xFFFF2A5F))),
                                       ),
                                     ],
                                   ),
@@ -277,7 +307,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFFF2A5F).withOpacity(0.15),
+                        color: const Color(0xFFFF2A5F).withValues(alpha: 0.15),
                         blurRadius: 30,
                         offset: const Offset(0, 15),
                       ),
@@ -286,31 +316,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(24),
                     child: hasVideo
-                        ? GestureDetector(
-                            onHorizontalDragEnd: (details) {
-                              if (details.primaryVelocity == null) return;
-                              if (details.primaryVelocity! < -200 && _currentPage == 0) {
-                                setState(() => _currentPage = 1);
-                              } else if (details.primaryVelocity! > 200 && _currentPage == 1) {
-                                setState(() => _currentPage = 0);
-                              }
+                        ? PageView(
+                            controller: _pageController,
+                            physics: const ClampingScrollPhysics(),
+                            clipBehavior: Clip.hardEdge,
+                            onPageChanged: (page) {
+                              _currentPageNotifier.value = page;
                             },
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 320),
-                              transitionBuilder: (child, animation) => FadeTransition(
-                                opacity: animation,
-                                child: child,
-                              ),
-                              child: _currentPage == 0
-                                  ? KeyedSubtree(
-                                      key: const ValueKey('thumb'),
-                                      child: _buildThumbnailView(track, isLocal),
-                                    )
-                                  : KeyedSubtree(
-                                      key: const ValueKey('video'),
-                                      child: _buildVideoView(audioService),
-                                    ),
-                            ),
+                            children: [
+                              ClipRect(child: _buildThumbnailView(track, isLocal)),
+                              ClipRect(child: _buildVideoView(audioService)),
+                            ],
                           )
                         : _buildThumbnailView(track, isLocal),
                   ),
@@ -318,30 +334,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                 if (hasVideo) ...[
                   const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _currentPage == 0 ? Icons.image_rounded : Icons.image_outlined,
-                        size: 16,
-                        color: _currentPage == 0 ? const Color(0xFFFF2A5F) : Colors.white38,
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        width: 4,
-                        height: 4,
-                        decoration: const BoxDecoration(
-                          color: Colors.white24,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        _currentPage == 1 ? Icons.videocam_rounded : Icons.videocam_outlined,
-                        size: 16,
-                        color: _currentPage == 1 ? const Color(0xFFFF2A5F) : Colors.white38,
-                      ),
-                    ],
+                  ValueListenableBuilder<int>(
+                    valueListenable: _currentPageNotifier,
+                    builder: (context, currentPage, _) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            currentPage == 0 ? Icons.image_rounded : Icons.image_outlined,
+                            size: 16,
+                            color: currentPage == 0 ? const Color(0xFFFF2A5F) : Colors.white38,
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 4,
+                            height: 4,
+                            decoration: const BoxDecoration(
+                              color: Colors.white24,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            currentPage == 1 ? Icons.videocam_rounded : Icons.videocam_outlined,
+                            size: 16,
+                            color: currentPage == 1 ? const Color(0xFFFF2A5F) : Colors.white38,
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
 
@@ -383,46 +404,54 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 // Progress Slider
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    children: [
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          activeTrackColor: const Color(0xFFFF2A5F),
-                          inactiveTrackColor: Colors.white12,
-                          trackHeight: 4.0,
-                          thumbColor: const Color(0xFFFF2A5F),
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                          overlayColor: const Color(0xFFFF2A5F).withAlpha(32),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
-                        ),
-                        child: Slider(
-                          min: 0.0,
-                          max: audioService.duration.inMilliseconds.toDouble(),
-                          value: audioService.position.inMilliseconds
-                              .toDouble()
-                              .clamp(0.0, audioService.duration.inMilliseconds.toDouble()),
-                          onChanged: (value) {
-                            audioService.seek(Duration(milliseconds: value.toInt()));
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _formatDuration(audioService.position),
-                              style: const TextStyle(color: Colors.white38, fontSize: 12),
+                  child: StreamBuilder<Duration>(
+                    stream: audioService.positionStream,
+                    initialData: audioService.position,
+                    builder: (context, snapshot) {
+                      final currentPosition = snapshot.data ?? Duration.zero;
+                      final totalDuration = audioService.duration;
+                      return Column(
+                        children: [
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              activeTrackColor: const Color(0xFFFF2A5F),
+                              inactiveTrackColor: Colors.white12,
+                              trackHeight: 4.0,
+                              thumbColor: const Color(0xFFFF2A5F),
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                              overlayColor: const Color(0xFFFF2A5F).withAlpha(32),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
                             ),
-                            Text(
-                              _formatDuration(audioService.duration),
-                              style: const TextStyle(color: Colors.white38, fontSize: 12),
+                            child: Slider(
+                              min: 0.0,
+                              max: totalDuration.inMilliseconds.toDouble(),
+                              value: currentPosition.inMilliseconds
+                                  .toDouble()
+                                  .clamp(0.0, totalDuration.inMilliseconds.toDouble()),
+                              onChanged: (value) {
+                                audioService.seek(Duration(milliseconds: value.toInt()));
+                              },
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  _formatDuration(currentPosition),
+                                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                                ),
+                                Text(
+                                  _formatDuration(totalDuration),
+                                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
 
@@ -469,7 +498,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFFF2A5F).withOpacity(0.4),
+                                color: const Color(0xFFFF2A5F).withValues(alpha: 0.4),
                                 blurRadius: 20,
                                 offset: const Offset(0, 8),
                               ),

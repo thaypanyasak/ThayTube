@@ -134,6 +134,7 @@ class PlaylistDetailScreen extends StatelessWidget {
                               context: context,
                               isScrollControlled: true,
                               useSafeArea: true,
+                              enableDrag: false,
                               backgroundColor: Colors.transparent,
                               builder: (context) => const PlayerScreen(),
                             );
@@ -165,40 +166,109 @@ class PlaylistDetailScreen extends StatelessWidget {
                 (context, index) {
                   final track = playlistTracks[index];
                   final thumbFile = File(track.localThumbnailPath);
+                  final isPlayingTrack = audioService.currentTrack?.id == track.id;
                   
                   return Container(
                     margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF161622),
+                      color: isPlayingTrack ? const Color(0xFF1E1E30) : const Color(0xFF161622),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isPlayingTrack 
+                            ? const Color(0xFFFF2A5F).withValues(alpha: 0.35) 
+                            : Colors.transparent,
+                        width: isPlayingTrack ? 1.5 : 1.0,
+                      ),
+                      boxShadow: isPlayingTrack ? [
+                        BoxShadow(
+                          color: const Color(0xFFFF2A5F).withValues(alpha: 0.12),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
+                      ] : null,
                     ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Stack(
+                        children: [
+                          if (isPlayingTrack)
+                            Positioned(
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: 4,
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFFF2A5F),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Color(0xFFFF2A5F),
+                                      blurRadius: 6,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ListTile(
+                            contentPadding: EdgeInsets.only(
+                              left: isPlayingTrack ? 16 : 12,
+                              right: 12,
+                              top: 4,
+                              bottom: 4,
+                            ),
                       leading: ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: thumbFile.existsSync()
-                            ? Image.file(
-                                thumbFile,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            thumbFile.existsSync()
+                                ? Image.file(
+                                    thumbFile,
+                                    width: 72,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    width: 72,
+                                    height: 44,
+                                    color: Colors.grey[900],
+                                    child: const Icon(Icons.video_collection, color: Colors.white24),
+                                  ),
+                            if (isPlayingTrack)
+                              Container(
                                 width: 72,
                                 height: 44,
-                                fit: BoxFit.cover,
-                              )
-                            : Container(
-                                width: 72,
-                                height: 44,
-                                color: Colors.grey[900],
-                                child: const Icon(Icons.video_collection, color: Colors.white24),
+                                color: Colors.black.withValues(alpha: 0.65),
+                                child: Center(
+                                  child: audioService.isPlaying
+                                      ? const MiniEqualizer()
+                                      : const Icon(
+                                          Icons.play_arrow_rounded,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                ),
                               ),
+                          ],
+                        ),
                       ),
                       title: Text(
                         track.title,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                        style: TextStyle(
+                          color: isPlayingTrack ? const Color(0xFFFF5281) : Colors.white,
+                          fontWeight: isPlayingTrack ? FontWeight.bold : FontWeight.w600,
+                          fontSize: 14,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Text(
                         track.author,
-                        style: const TextStyle(color: Colors.white38, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 12,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -220,18 +290,90 @@ class PlaylistDetailScreen extends StatelessWidget {
                           context: context,
                           isScrollControlled: true,
                           useSafeArea: true,
+                          enableDrag: false,
                           backgroundColor: Colors.transparent,
                           builder: (context) => const PlayerScreen(),
                         );
                       },
                     ),
-                  );
-                },
+                  ],
+                ),
+              ),
+            );
+          },
                 childCount: playlistTracks.length,
               ),
             ),
         ],
       ),
+    );
+  }
+}
+
+class MiniEqualizer extends StatefulWidget {
+  const MiniEqualizer({super.key});
+
+  @override
+  State<MiniEqualizer> createState() => _MiniEqualizerState();
+}
+
+class _MiniEqualizerState extends State<MiniEqualizer> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late List<Animation<double>> _animations;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+
+    _animations = List.generate(3, (index) {
+      final begin = 0.2 + (index * 0.25);
+      return Tween<double>(begin: begin, end: 1.0).animate(
+        CurvedAnimation(
+          parent: _controller,
+          curve: Interval(index * 0.2, 1.0, curve: Curves.easeInOut),
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(3, (index) {
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return Container(
+              width: 3.0,
+              height: 14 * _animations[index].value,
+              margin: const EdgeInsets.symmetric(horizontal: 1.2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF2A5F),
+                borderRadius: BorderRadius.circular(1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFF2A5F).withValues(alpha: 0.6),
+                    blurRadius: 4,
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      }),
     );
   }
 }

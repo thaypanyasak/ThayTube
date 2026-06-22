@@ -248,14 +248,17 @@ class DownloadService extends ChangeNotifier {
           streamInfo = sortedMuxed.first;
           fileExt = '.mp4';
         } else {
-          // Find highest quality audio stream
+          // Find highest quality audio stream, prioritizing M4A (AAC) for native iOS decoding
           if (manifest.audioOnly.isEmpty) {
             throw Exception("No audio streams available.");
           }
-          final sortedAudio = List<AudioOnlyStreamInfo>.from(manifest.audioOnly)
-            ..sort((a, b) => b.size.totalBytes.compareTo(a.size.totalBytes));
+          final aacStreams = manifest.audioOnly
+              .where((s) => s.container.name == 'm4a' || s.container.name == 'mp4')
+              .toList();
+          final sortedAudio = aacStreams.isNotEmpty ? aacStreams : manifest.audioOnly.toList();
+          sortedAudio.sort((a, b) => b.size.totalBytes.compareTo(a.size.totalBytes));
           streamInfo = sortedAudio.first;
-          fileExt = '.m4a';
+          fileExt = streamInfo.container.name == 'm4a' ? '.m4a' : '.webm';
         }
       }
 
