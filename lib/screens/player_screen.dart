@@ -470,8 +470,10 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
                     stream: audioService.positionStream,
                     initialData: audioService.position,
                     builder: (context, snapshot) {
-                      final currentPosition = snapshot.data ?? Duration.zero;
-                      final totalDuration = audioService.duration;
+                      final currentPosition = audioService.isLoading
+                          ? Duration.zero
+                          : (snapshot.data ?? Duration.zero);
+                      final totalDuration = Duration(milliseconds: track.durationMs);
                       return Column(
                         children: [
                           SliderTheme(

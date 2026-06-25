@@ -212,7 +212,7 @@ class AudioService extends ChangeNotifier {
 
       // 1. Play the Audio stream/file via just_audio (_player) for background capability
       if (file.existsSync()) {
-        await _player.setAudioSource(AudioSource.file(file.path));
+        await _player.setAudioSource(AudioSource.file(file.path), initialPosition: Duration.zero);
       } else {
         manifest = await _youtubeService.getStreamManifest(track.id);
         
@@ -233,7 +233,7 @@ class AudioService extends ChangeNotifier {
           selectedAudioStream = manifest.audioOnly.withHighestBitrate();
         }
         
-        await _player.setAudioSource(AudioSource.uri(selectedAudioStream.url));
+        await _player.setAudioSource(AudioSource.uri(selectedAudioStream.url), initialPosition: Duration.zero);
       }
 
       // Start main audio playback immediately
@@ -415,7 +415,7 @@ class AudioService extends ChangeNotifier {
         avAudioSessionCategory: AVAudioSessionCategory.playback,
         avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
             AVAudioSessionCategoryOptions.allowAirPlay,
-        avAudioSessionMode: AVAudioSessionMode.moviePlayback,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
         avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
         androidAudioAttributes: const AndroidAudioAttributes(
           contentType: AndroidAudioContentType.music,

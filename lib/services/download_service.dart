@@ -44,10 +44,37 @@ class DownloadService extends ChangeNotifier {
       if (jsonString != null) {
         final List<dynamic> decoded = json.decode(jsonString);
         _downloadedItems.clear();
+        
+        final appDir = await getApplicationDocumentsDirectory();
+        final mediaDirPath = '${appDir.path}/media';
+        final thumbnailDirPath = '${appDir.path}/thumbnails';
+        
         bool migrated = false;
         
         for (var itemMap in decoded) {
           var item = DownloadItem.fromMap(itemMap);
+          
+          // Reconstruct paths to adapt to iOS/Android dynamic sandbox UUID prefixes on update/reinstall
+          if (item.localFilePath.isNotEmpty) {
+            final mediaFileName = item.localFilePath.replaceAll('\\', '/').split('/').last;
+            final thumbnailFileName = item.localThumbnailPath.replaceAll('\\', '/').split('/').last;
+            
+            final reconstructedFilePath = '$mediaDirPath/$mediaFileName';
+            final reconstructedThumbnailPath = '$thumbnailDirPath/$thumbnailFileName';
+            
+            item = DownloadItem(
+              id: item.id,
+              title: item.title,
+              author: item.author,
+              durationMs: item.durationMs,
+              thumbnailUrl: item.thumbnailUrl,
+              localFilePath: reconstructedFilePath,
+              localThumbnailPath: reconstructedThumbnailPath,
+              fileSize: item.fileSize,
+              downloadedAt: item.downloadedAt,
+              isVideo: item.isVideo,
+            );
+          }
           
           // Verify file exists, otherwise try alternative extension (.m4a <-> .mp4)
           File file = File(item.localFilePath);

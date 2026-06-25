@@ -222,13 +222,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadModernYoutube() async {
-    try {
-      final cookieManager = WebViewCookieManager();
-      // Clear cookies once to force clean slate without old layout settings
-      await cookieManager.clearCookies();
-    } catch (e) {
-      debugPrint('Error clearing cookies: $e');
-    }
     await _webController.loadRequest(Uri.parse('https://m.youtube.com'));
   }
 
