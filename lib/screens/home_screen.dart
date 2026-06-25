@@ -84,6 +84,9 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() {
                 _webProgress = progress / 100.0;
               });
+              if (progress > 50) {
+                _injectAdBlockAndStyle();
+              }
             }
           },
           onPageStarted: (String url) {
@@ -102,97 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _currentUrl = url;
                 _canGoBack = canGo;
               });
-              // [ignoring loop detection]
-              // Inject JS: add playsinline to all video elements, inject dark theme/adblock CSS, and set up dynamic ad-skipping loop
-              await _webController.runJavaScript('''
-                (function() {
-                  try {
-                    var htmlEl = document.documentElement;
-                    if (htmlEl) {
-                      htmlEl.setAttribute('dark', 'true');
-                      htmlEl.setAttribute('theme', 'DARK');
-                    }
-                    var target = document.head || document.documentElement || document.body;
-                    if (target) {
-                      var style = document.getElementById('yt-dark-mode-adblock-style');
-                      if (!style) {
-                        style = document.createElement('style');
-                        style.id = 'yt-dark-mode-adblock-style';
-                        style.type = 'text/css';
-                        style.innerHTML = 'html, body, ytm-topbar, .ytm-topbar, ytm-pivot-bar, .pivot-bar, .topbar, ytm-single-column-watch-next-results-renderer, ytm-item-section-renderer, ytm-media-item, .media-item, .item, .card { background-color: #0f0f0f !important; color: #ffffff !important; } :root { --yt-spec-brand-background-solid: #0f0f0f !important; --yt-spec-general-background-a: #0f0f0f !important; --yt-spec-general-background-b: #1f1f1f !important; --yt-spec-general-background-c: #2f2f2f !important; --yt-spec-text-primary: #ffffff !important; --yt-spec-text-secondary: #aaaaaa !important; --yt-spec-icon-active-other: #ffffff !important; --yt-spec-icon-inactive: #aaaaaa !important; --yt-spec-brand-background-primary: #0f0f0f !important; --yt-spec-brand-background-secondary: #0f0f0f !important; } input, ytm-searchbox, .searchbox, .search-box-container { background-color: #1f1f1f !important; color: #ffffff !important; } ytm-companion-ad-renderer, ytm-promoted-item-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-sparkles-text-search-renderer, ytm-install-app-promo, ytm-install-app-promo-renderer, ytm-mealbar-promo-renderer, .m-upsell-developer-promo, yt-install-app-promo-renderer, ytm-smart-app-banner, .ytm-app-promo, [aria-label="Install YouTube app"], ytm-unlimited-offer-page-renderer, .ad-container, .ad-image, .header-ad, .video-ads, .ytp-ad-module, .ytp-ad-image-overlay, .ytp-ad-text-overlay, .ytp-ad-overlay-container, ytm-message-renderer, .ytp-ad-overlay-slot, .ytm-ad-playability-overlay, .ytp-ad-progress-list, ytm-branded-banner-renderer, .sparkles-light-theme, [class*="ytm-ad-"], [class*="ytp-ad-"] { display: none !important; height: 0px !important; width: 0px !important; opacity: 0 !important; pointer-events: none !important; }';
-                        target.appendChild(style);
-                      }
-                    }
-                    
-                    if (!window._adblock_interval_running) {
-                      window._adblock_interval_running = true;
-                      setInterval(function() {
-                        var skipButtons = [
-                          '.ytp-ad-skip-button',
-                          '.ytp-ad-skip-button-modern',
-                          '.videoAdUiSkipButton',
-                          '.ytm-ad-playability-overlay-skip-button',
-                          '.ytp-ad-skip-button-slot',
-                          '[class*="skip-button"]',
-                          '.ytp-ad-skip-button-text'
-                        ];
-                        skipButtons.forEach(function(selector) {
-                          var btn = document.querySelector(selector);
-                          if (btn) {
-                            btn.click();
-                            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                          }
-                        });
-
-                        var video = document.querySelector('video');
-                        var player = document.querySelector('.html5-video-player') || document.querySelector('#movie_player');
-                        var isAd = false;
-                        if (player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'))) {
-                          isAd = true;
-                        }
-                        if (document.querySelector('.ytp-ad-player-overlay') || document.querySelector('.ytp-ad-overlay-slot')) {
-                          isAd = true;
-                        }
-                        if (isAd && video) {
-                          video.muted = true;
-                          if (isFinite(video.duration) && video.duration > 0) {
-                            video.currentTime = video.duration - 0.1;
-                          }
-                          video.playbackRate = 16.0;
-                          video.play().catch(function(){});
-                        }
-                        var playabilityOverlay = document.querySelector('.ytm-ad-playability-overlay');
-                        if (playabilityOverlay) {
-                          playabilityOverlay.remove();
-                        }
-                      }, 250);
-                    }
-
-                    document.querySelectorAll('video').forEach(function(v) {
-                      v.setAttribute('playsinline', '');
-                      v.setAttribute('webkit-playsinline', '');
-                    });
-
-                    var observer = new MutationObserver(function(mutations) {
-                      mutations.forEach(function(m) {
-                        m.addedNodes.forEach(function(node) {
-                          if (node.tagName === 'VIDEO') {
-                            node.setAttribute('playsinline', '');
-                            node.setAttribute('webkit-playsinline', '');
-                          }
-                          if (node.querySelectorAll) {
-                            node.querySelectorAll('video').forEach(function(v) {
-                              v.setAttribute('playsinline', '');
-                              v.setAttribute('webkit-playsinline', '');
-                            });
-                          }
-                        });
-                      });
-                    });
-                    observer.observe(document.body, { childList: true, subtree: true });
-                  } catch (e) {}
-                })();
-              ''');
+              _injectAdBlockAndStyle();
             }
           },
           onUrlChange: (UrlChange change) async {
@@ -203,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _currentUrl = url;
                 _canGoBack = canGo;
               });
+              _injectAdBlockAndStyle();
             }
           },
           onNavigationRequest: (NavigationRequest request) {
@@ -219,6 +133,108 @@ class _HomeScreenState extends State<HomeScreen> {
     _webController = controller;
     _isWebInitialized = true;
     _loadModernYoutube();
+  }
+
+  Future<void> _injectAdBlockAndStyle() async {
+    if (!_isWebInitialized) return;
+    try {
+      await _webController.runJavaScript('''
+        (function() {
+          try {
+            var htmlEl = document.documentElement;
+            if (htmlEl) {
+              htmlEl.setAttribute('dark', 'true');
+              htmlEl.setAttribute('theme', 'DARK');
+            }
+            var target = document.head || document.documentElement || document.body;
+            if (target) {
+              var style = document.getElementById('yt-dark-mode-adblock-style');
+              if (!style) {
+                style = document.createElement('style');
+                style.id = 'yt-dark-mode-adblock-style';
+                style.type = 'text/css';
+                style.innerHTML = 'html, body, ytm-topbar, .ytm-topbar, ytm-pivot-bar, .pivot-bar, .topbar, ytm-single-column-watch-next-results-renderer, ytm-item-section-renderer, ytm-media-item, .media-item, .item, .card { background-color: #0f0f0f !important; color: #ffffff !important; } :root { --yt-spec-brand-background-solid: #0f0f0f !important; --yt-spec-general-background-a: #0f0f0f !important; --yt-spec-general-background-b: #1f1f1f !important; --yt-spec-general-background-c: #2f2f2f !important; --yt-spec-text-primary: #ffffff !important; --yt-spec-text-secondary: #aaaaaa !important; --yt-spec-icon-active-other: #ffffff !important; --yt-spec-icon-inactive: #aaaaaa !important; --yt-spec-brand-background-primary: #0f0f0f !important; --yt-spec-brand-background-secondary: #0f0f0f !important; } input, ytm-searchbox, .searchbox, .search-box-container { background-color: #1f1f1f !important; color: #ffffff !important; } ytm-companion-ad-renderer, ytm-promoted-item-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-sparkles-text-search-renderer, ytm-install-app-promo, ytm-install-app-promo-renderer, ytm-mealbar-promo-renderer, .m-upsell-developer-promo, yt-install-app-promo-renderer, ytm-smart-app-banner, .ytm-app-promo, [aria-label="Install YouTube app"], ytm-unlimited-offer-page-renderer, .ad-container, .ad-image, .header-ad, .video-ads, .ytp-ad-module, .ytp-ad-image-overlay, .ytp-ad-text-overlay, .ytp-ad-overlay-container, ytm-message-renderer, .ytp-ad-overlay-slot, .ytm-ad-playability-overlay, .ytp-ad-progress-list, ytm-branded-banner-renderer, .sparkles-light-theme, [class*="ytm-ad-"], [class*="ytp-ad-"], ytm-promoted-video-renderer { display: none !important; height: 0px !important; width: 0px !important; opacity: 0 !important; pointer-events: none !important; }';
+                target.appendChild(style);
+              }
+            }
+            
+            if (!window._adblock_interval_running) {
+              window._adblock_interval_running = true;
+              setInterval(function() {
+                try {
+                  var skipButtons = [
+                    '.ytp-ad-skip-button',
+                    '.ytp-ad-skip-button-modern',
+                    '.videoAdUiSkipButton',
+                    '.ytm-ad-playability-overlay-skip-button',
+                    '.ytp-ad-skip-button-slot',
+                    '[class*="skip-button"]',
+                    '.ytp-ad-skip-button-text'
+                  ];
+                  skipButtons.forEach(function(selector) {
+                    var btn = document.querySelector(selector);
+                    if (btn) {
+                      btn.click();
+                      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    }
+                  });
+
+                  var promoCancel = document.querySelector('ytm-dialog-renderer [data-spec="dialog-cancel-button"]') ||
+                                    document.querySelector('.yt-spec-button-shape-next--mono.yt-spec-button-shape-next--filled') ||
+                                    document.querySelector('ytm-mealbar-promo-renderer [data-spec="dialog-cancel-button"]') ||
+                                    document.querySelector('.ytm-app-promo-cancel-button');
+                  if (promoCancel) {
+                    promoCancel.click();
+                  }
+
+                  var video = document.querySelector('video');
+                  var player = document.querySelector('.html5-video-player') || 
+                               document.querySelector('#movie_player') ||
+                               document.querySelector('.player-container');
+                  var isAd = false;
+                  if (player && (
+                    player.classList.contains('ad-showing') || 
+                    player.classList.contains('ad-interrupting') || 
+                    player.classList.contains('playing-ad')
+                  )) {
+                    isAd = true;
+                  }
+                  if (document.querySelector('.ytp-ad-player-overlay') || 
+                      document.querySelector('.ytp-ad-overlay-slot') ||
+                      document.querySelector('.ytp-ad-overlay-container') ||
+                      document.querySelector('.video-ads')) {
+                    isAd = true;
+                  }
+                  if (isAd && video) {
+                    video.muted = true;
+                    if (isFinite(video.duration) && video.duration > 0) {
+                      video.currentTime = video.duration - 0.1;
+                    } else {
+                      video.currentTime = 99999;
+                    }
+                    video.playbackRate = 16.0;
+                    video.play().catch(function(){});
+                  }
+                  var playabilityOverlay = document.querySelector('.ytm-ad-playability-overlay');
+                  if (playabilityOverlay) {
+                    playabilityOverlay.remove();
+                  }
+                } catch (e) {}
+              }, 200);
+            }
+
+            document.querySelectorAll('video').forEach(function(v) {
+              if (!v.getAttribute('playsinline')) {
+                v.setAttribute('playsinline', '');
+                v.setAttribute('webkit-playsinline', '');
+              }
+            });
+          } catch (e) {}
+        })();
+      ''');
+    } catch (e) {
+      debugPrint('JS injection error: \$e');
+    }
   }
 
   Future<void> _loadModernYoutube() async {
