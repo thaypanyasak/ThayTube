@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../services/backup_service.dart';
 import '../services/download_service.dart';
 import '../services/language_service.dart';
@@ -106,13 +107,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF161622),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Chỉnh sửa tên', style: TextStyle(color: Colors.white)),
+        title: Text(context.tr('edit_name'), style: const TextStyle(color: Colors.white)),
         content: TextField(
           controller: controller,
           autofocus: true,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
-            hintText: 'Nhập tên của bạn',
+            hintText: context.tr('enter_name_hint'),
             hintStyle: const TextStyle(color: Colors.white38),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
@@ -129,14 +130,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Huỷ', style: TextStyle(color: Colors.white38)),
+            child: Text(context.tr('cancel'), style: const TextStyle(color: Colors.white38)),
           ),
           TextButton(
             onPressed: () {
               profileService.updateName(controller.text);
               Navigator.pop(ctx);
             },
-            child: const Text('Lưu', style: TextStyle(color: Color(0xFFFF2A5F), fontWeight: FontWeight.bold)),
+            child: Text(context.tr('save'), style: const TextStyle(color: Color(0xFFFF2A5F), fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -159,85 +160,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── Backup / Restore ─────────────────────────────────────────────────────
 
   Future<void> _doExport(BuildContext context) async {
-    final error = await BackupService.exportBackup();
+    final result = await BackupService.exportBackup();
     if (!context.mounted) return;
-    if (error != null) {
+    if (result == 'cancelled') {
+      return; // Do nothing if the user cancelled
+    } else if (result != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error), backgroundColor: Colors.red),
+        SnackBar(content: Text(result), backgroundColor: Colors.red),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.tr('export_success')),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
   }
 
   Future<void> _doImport(BuildContext context) async {
-    // Ask user to pick a file using text-field path (simple approach without file_picker)
-    final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF161622),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Khôi phục Backup', style: TextStyle(color: Colors.white)),
+        title: Text(context.tr('restore_backup'), style: const TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Dán đường dẫn đến file thaytube_backup.json:',
-              style: TextStyle(color: Colors.white60, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: InputDecoration(
-                hintText: '/path/to/thaytube_backup.json',
-                hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Colors.white12),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFFF2A5F)),
-                ),
-                filled: true,
-                fillColor: const Color(0xFF0F0F1A),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '⚠️ Ứng dụng sẽ cần khởi động lại để dữ liệu có hiệu lực.',
-              style: TextStyle(color: Colors.amber, fontSize: 11),
+            Text(
+              context.tr('restore_confirm_desc'),
+              style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Huỷ', style: TextStyle(color: Colors.white38)),
+            child: Text(context.tr('cancel'), style: const TextStyle(color: Colors.white38)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Khôi phục', style: TextStyle(color: Color(0xFFFF2A5F), fontWeight: FontWeight.bold)),
+            child: Text(context.tr('restore'), style: const TextStyle(color: Color(0xFFFF2A5F), fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
 
     if (confirmed != true || !context.mounted) return;
-    final error = await BackupService.importBackup(controller.text.trim());
-    if (!context.mounted) return;
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error), backgroundColor: Colors.red),
+
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
       );
-    } else {
+
+      if (result == null || result.files.single.path == null) return;
+      final filePath = result.files.single.path!;
+
+      final error = await BackupService.importBackup(filePath);
+      if (!context.mounted) return;
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.tr('restore_success')),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Khôi phục thành công! Vui lòng khởi động lại ứng dụng.'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 4),
-        ),
+        SnackBar(content: Text('Error choosing file: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -334,7 +335,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 28),
 
               // ── General Settings ──────────────────────────────────────────
-              _buildSectionLabel('Cài đặt chung'),
+              _buildSectionLabel(context.tr('general_settings')),
               const SizedBox(height: 12),
               _buildMenuTile(
                 icon: Icons.language_rounded,
@@ -356,46 +357,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 28),
 
               // ── Backup / Restore ──────────────────────────────────────────
-              _buildSectionLabel('Dữ liệu & Sao lưu'),
+              _buildSectionLabel(context.tr('data_backup')),
               const SizedBox(height: 12),
               _buildMenuTile(
                 icon: Icons.upload_rounded,
-                title: 'Xuất Backup',
-                subtitle: 'Lưu danh sách tải, playlist ra file',
+                title: context.tr('export_backup'),
+                subtitle: context.tr('export_backup_desc'),
                 onTap: () => _doExport(context),
                 iconColor: const Color(0xFF4FC3F7),
               ),
               _buildMenuTile(
                 icon: Icons.download_rounded,
-                title: 'Khôi phục Backup',
-                subtitle: 'Nhập file backup để khôi phục dữ liệu',
+                title: context.tr('restore_backup'),
+                subtitle: context.tr('restore_backup_desc'),
                 onTap: () => _doImport(context),
                 iconColor: const Color(0xFF81C784),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── Data safety note ──────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A2E),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.amber.withOpacity(0.25)),
-                ),
-                child: const Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline_rounded, color: Colors.amber, size: 18),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Khi cài đặt phiên bản mới đè lên, hãy xuất Backup trước để tránh mất dữ liệu. Sau khi cài xong, dùng chức năng Khôi phục để lấy lại.',
-                        style: TextStyle(color: Colors.amber, fontSize: 12, height: 1.5),
-                      ),
-                    ),
-                  ],
-                ),
               ),
 
               const SizedBox(height: 32),
@@ -413,23 +389,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final hasCustomAvatar = avatarPath != null && File(avatarPath).existsSync();
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E1E2E), Color(0xFF161622)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFFF2A5F).withOpacity(0.08),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
           // Avatar
@@ -520,9 +481,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           const SizedBox(height: 4),
-          const Text(
-            'Nhấn vào tên hoặc ảnh để chỉnh sửa',
-            style: TextStyle(color: Colors.white30, fontSize: 11),
+          Text(
+            context.tr('tap_to_edit'),
+            style: const TextStyle(color: Colors.white30, fontSize: 11),
           ),
         ],
       ),

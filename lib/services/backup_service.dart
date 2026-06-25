@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Keys stored in SharedPreferences that we want to back up & restore.
@@ -17,7 +16,7 @@ const _backupKeys = [
 ];
 
 class BackupService {
-  /// Export: writes a JSON backup file and shares it via the system share sheet.
+  /// Export: writes a JSON backup file directly to the user selected storage location.
   static Future<String?> exportBackup() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -27,17 +26,17 @@ class BackupService {
         if (value != null) data[key] = value;
       }
 
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/thaytube_backup.json');
-      await file.writeAsString(jsonEncode(data));
+      final jsonStr = jsonEncode(data);
+      final bytes = Uint8List.fromList(utf8.encode(jsonStr));
 
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'application/json')],
-          text: 'ThayTube Backup',
-          subject: 'thaytube_backup.json',
-        ),
+      final path = await FilePicker.saveFile(
+        fileName: 'thaytube_backup.json',
+        bytes: bytes,
       );
+
+      if (path == null) {
+        return 'cancelled'; // User cancelled the picker
+      }
       return null; // success
     } catch (e) {
       debugPrint('Backup export error: $e');

@@ -30,6 +30,7 @@ class AudioService extends ChangeNotifier {
   LoopMode _loopMode = LoopMode.off;
   bool _shuffleModeEnabled = false;
   bool _isLoading = false;
+  String? _lastCompletedTrackId;
 
   // ── Getters ───────────────────────────────────────────────────────────────
   DownloadItem? get currentTrack => _currentTrack;
@@ -165,6 +166,7 @@ class AudioService extends ChangeNotifier {
     }
 
     _isLoading = true;
+    _lastCompletedTrackId = null; // Reset completed status for the new track
     await _stopControllers();
     _currentTrack = track;
     notifyListeners();
@@ -401,6 +403,14 @@ class AudioService extends ChangeNotifier {
   }
 
   void _handleTrackCompleted() {
+    if (_currentTrack == null || _isLoading) return;
+
+    // Prevent duplicate completion events for the same track
+    if (_lastCompletedTrackId == _currentTrack!.id) {
+      return;
+    }
+    _lastCompletedTrackId = _currentTrack!.id;
+
     if (_loopMode == LoopMode.one) {
       // handled by just_audio itself
     } else {
