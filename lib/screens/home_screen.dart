@@ -199,10 +199,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   )) {
                     isAd = true;
                   }
-                  if (document.querySelector('.ytp-ad-player-overlay') || 
-                      document.querySelector('.ytp-ad-overlay-slot') ||
-                      document.querySelector('.ytp-ad-overlay-container') ||
-                      document.querySelector('.video-ads')) {
+                  var adOverlay = document.querySelector('.ytp-ad-player-overlay') || 
+                                  document.querySelector('.ytp-ad-overlay-slot') ||
+                                  document.querySelector('.ytm-ad-playability-overlay');
+                  var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytm-ad-playability-overlay-skip-button');
+                  if (adOverlay || skipBtn) {
                     isAd = true;
                   }
                   if (isAd && video) {

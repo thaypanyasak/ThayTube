@@ -118,8 +118,8 @@ class AudioService extends ChangeNotifier {
     });
   }
 
-  Future<void> _stopControllers() async {
-    if (_player.playing) {
+  Future<void> _stopControllers({bool stopAudio = true}) async {
+    if (stopAudio && _player.playing) {
       await _player.stop();
     }
     if (_videoController != null) {
@@ -128,10 +128,12 @@ class AudioService extends ChangeNotifier {
       await _videoController!.dispose();
       _videoController = null;
     }
-    _isPlaying = false;
-    _position = Duration.zero;
-    _duration = Duration.zero;
-    _bufferedPosition = Duration.zero;
+    if (stopAudio) {
+      _isPlaying = false;
+      _position = Duration.zero;
+      _duration = Duration.zero;
+      _bufferedPosition = Duration.zero;
+    }
   }
 
   void _onVideoControllerUpdate() {
@@ -167,7 +169,7 @@ class AudioService extends ChangeNotifier {
 
     _isLoading = true;
     _lastCompletedTrackId = null; // Reset completed status for the new track
-    await _stopControllers();
+    await _stopControllers(stopAudio: false);
     _currentTrack = track;
     notifyListeners();
 
