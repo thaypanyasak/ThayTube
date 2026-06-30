@@ -72,6 +72,15 @@ class AudioService extends ChangeNotifier {
           }
         }
 
+        // Always update lock screen / Control Center metadata on state transitions
+        _handler.updateNowPlayingInfo(
+          id: _currentTrack!.id,
+          title: _currentTrack!.title,
+          artist: _currentTrack!.author,
+          artUri: _currentTrack!.thumbnailUrl,
+          duration: _duration,
+        );
+
         if (state.processingState == ProcessingState.completed) {
           _handleTrackCompleted();
         }
@@ -105,6 +114,14 @@ class AudioService extends ChangeNotifier {
     _player.durationStream.listen((dur) {
       if (_currentTrack != null) {
         _duration = dur ?? Duration.zero;
+        // Update lock screen / Control Center with the correct duration once it loads
+        _handler.updateNowPlayingInfo(
+          id: _currentTrack!.id,
+          title: _currentTrack!.title,
+          artist: _currentTrack!.author,
+          artUri: _currentTrack!.thumbnailUrl,
+          duration: _duration,
+        );
         notifyListeners();
       }
     });
@@ -170,6 +187,11 @@ class AudioService extends ChangeNotifier {
     _isLoading = true;
     _lastCompletedTrackId = null; // Reset completed status for the new track
     await _stopControllers(stopAudio: false);
+    
+    // Re-initialize and activate AudioSession after stopping video controllers,
+    // to override any session resets or deactivations from video player disposal.
+    await _initAudioSession();
+    
     _currentTrack = track;
     notifyListeners();
 
