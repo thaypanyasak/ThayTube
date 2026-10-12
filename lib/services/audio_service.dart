@@ -50,7 +50,7 @@ class AudioService extends ChangeNotifier {
   }
 
   void _init() {
-    _initAudioSession();
+    _ensureAudioSession();
 
     // Listen to OS "next/previous" commands forwarded via customEvent
     _handler.customEvent.listen((event) {
@@ -112,18 +112,24 @@ class AudioService extends ChangeNotifier {
 
     // Listen to duration
     _player.durationStream.listen((dur) {
-      if (_currentTrack != null) {
-        _duration = dur ?? Duration.zero;
-        // Update lock screen / Control Center with the correct duration once it loads
-        _handler.updateNowPlayingInfo(
-          id: _currentTrack!.id,
-          title: _currentTrack!.title,
-          artist: _currentTrack!.author,
-          artUri: _currentTrack!.thumbnailUrl,
-          duration: _duration,
-        );
+      if (_currentTrack == null) return;
+      if (dur == null) {
+        // Source is (re)loading — don't push a zero-duration now-playing
+        // update; it can blank Dynamic Island / Lock Screen mid track-switch.
+        _duration = Duration.zero;
         notifyListeners();
+        return;
       }
+      _duration = dur;
+      // Update lock screen / Control Center with the correct duration once it loads
+      _handler.updateNowPlayingInfo(
+        id: _currentTrack!.id,
+        title: _currentTrack!.title,
+        artist: _currentTrack!.author,
+        artUri: _currentTrack!.thumbnailUrl,
+        duration: _duration,
+      );
+      notifyListeners();
     });
 
     // Listen to buffered position
@@ -187,12 +193,25 @@ class AudioService extends ChangeNotifier {
     _isLoading = true;
     _lastCompletedTrackId = null; // Reset completed status for the new track
     await _stopControllers(stopAudio: false);
-    
-    // Re-initialize and activate AudioSession after stopping video controllers,
-    // to override any session resets or deactivations from video player disposal.
-    await _initAudioSession();
-    
+
+    // Re-activate the audio session after stopping video controllers, without
+    // re-setting the category (re-configuring mid-playback can interrupt the
+    // session and make iOS drop the now-playing UI).
+    await _ensureAudioSession();
+
     _currentTrack = track;
+
+    // Push track metadata to iOS now-playing (Dynamic Island / Lock Screen /
+    // Control Center) BEFORE the audio source starts loading. iOS only shows
+    // the now-playing UI reliably if metadata is registered before playback
+    // begins; setting it after play() leaves the first moments without metadata.
+    _handler.updateNowPlayingInfo(
+      id: track.id,
+      title: track.title,
+      artist: track.author,
+      artUri: track.thumbnailUrl,
+      duration: Duration(milliseconds: track.durationMs),
+    );
     notifyListeners();
 
     // Record to watch history
@@ -207,8 +226,17 @@ class AudioService extends ChangeNotifier {
         _playlist = List.from(contextPlaylist);
         _currentIndex = _playlist.indexWhere((t) => t.id == track.id);
       } else {
-        _playlist = [track];
-        _currentIndex = 0;
+        // Preserve the current queue when advancing via next()/previous()/
+        // auto-advance, which call playTrack without a context playlist.
+        // Replacing the queue here would break continuous playback after
+        // the next track ends.
+        final existingIndex = _playlist.indexWhere((t) => t.id == track.id);
+        if (existingIndex != -1) {
+          _currentIndex = existingIndex;
+        } else {
+          _playlist = [track];
+          _currentIndex = 0;
+        }
       }
       if (_currentIndex == -1) {
         _playlist.insert(0, track);
@@ -262,18 +290,11 @@ class AudioService extends ChangeNotifier {
         await _player.setAudioSource(AudioSource.uri(selectedAudioStream.url), initialPosition: Duration.zero);
       }
 
-      // Start main audio playback immediately
+      // Start main audio playback immediately.
+      // (Metadata was already pushed to the OS before loading — see above.
+      // The duration listener refreshes it again once the real duration loads.)
       _player.play(); // DO NOT await play() as it blocks until playback finishes or pauses
       _isPlaying = true;
-
-      // Update lock screen / Control Center metadata
-      _handler.updateNowPlayingInfo(
-        id: track.id,
-        title: track.title,
-        artist: track.author,
-        artUri: track.thumbnailUrl,
-        duration: Duration(milliseconds: track.durationMs),
-      );
 
       // 2. If it has a video track, load the video feed via VideoPlayerController (MUTED) asynchronously
       if (playsAsVideo) {
@@ -442,22 +463,31 @@ class AudioService extends ChangeNotifier {
     }
   }
 
-  Future<void> _initAudioSession() async {
+  bool _audioSessionConfigured = false;
+
+  /// Configures the audio session only once; later calls merely re-activate it.
+  /// Re-setting the audio category on every track switch can interrupt the
+  /// session and make iOS drop the now-playing UI (Dynamic Island, Lock Screen,
+  /// Control Center).
+  Future<void> _ensureAudioSession() async {
     try {
       final session = await AudioSession.instance;
-      await session.configure(AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playback,
-        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
-            AVAudioSessionCategoryOptions.allowAirPlay,
-        avAudioSessionMode: AVAudioSessionMode.defaultMode,
-        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        androidAudioAttributes: const AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.music,
-          usage: AndroidAudioUsage.media,
-        ),
-        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-        androidWillPauseWhenDucked: true,
-      ));
+      if (!_audioSessionConfigured) {
+        await session.configure(AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
+              AVAudioSessionCategoryOptions.allowAirPlay,
+          avAudioSessionMode: AVAudioSessionMode.defaultMode,
+          avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+          androidAudioAttributes: const AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+          androidWillPauseWhenDucked: true,
+        ));
+        _audioSessionConfigured = true;
+      }
       await session.setActive(true);
     } catch (e) {
       debugPrint('Error initializing audio session: $e');
